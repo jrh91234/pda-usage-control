@@ -29,3 +29,24 @@ body { background:var(--bg); color:var(--ink); font-family:"Segoe UI", "Noto San
 .modal-overlay,.scanner-overlay { background:#252a33aa; }.flow-modal,.scanner { border-radius:20px; box-shadow:0 28px 70px #11182738; }.selected-device { border:0; background:#f3f4f6; border-radius:13px; }.flow-modal input,.flow-modal select { border-color:#dde1e5; border-radius:10px; }.photo-box { border-color:#c8cdd3; background:#fafbfc; border-radius:13px; }.signed-user { background:#fbe7e9; color:#9d3540; }.returning { background:#fff1dc; }.close { color:#90979e; }
 .timeline-page { padding-top:39px; }.date-bar { border-color:#e3e6ea; }.event-dot.checkout { color:#b76b0d; background:#fff0dc; }.event-dot.return { color:#238f67; background:#e5f5ed; }.type-tag.checkout { color:#b76b0d; background:#fff0dc; }.type-tag.return { color:#238f67; background:#e5f5ed; }
 .admin-switch { border:0; background:#e9ebef; border-radius:12px; }.admin-switch button.active { color:#d62d3c; box-shadow:0 3px 10px #20242b18; }.admin-lock { background:#fbe7e9; color:#c82b3b; }.role-pill.admin { color:#9757a2; background:#f3e8f5; }.role-pill.operator { color:#238f67; background:#e5f5ed; }.admin-note { background:#eef0f3; color:#68717a; }.auth-card { border:0; box-shadow:0 24px 60px #15192218; }.auth-card .brand-mark { background:linear-gradient(145deg,#f04451,#d22232); }.auth-card h1 { font-family:"Segoe UI", "Noto Sans Thai", Arial, sans-serif; font-weight:800; }.auth-card input { border-color:#dde1e5; border-radius:10px; }
+/* Final OxygenOS blue palette override */
+:root { --teal:#2f6bff; --deep:#1f4fd1; --red:#1f4fd1; }
+.eyebrow { color:#2f63e8; }
+.hero h1 em { color:#2f63e8; }
+.scan-button,.primary-action { background:linear-gradient(140deg,#3975ff,#2455d9); box-shadow:0 8px 18px #2b61e938; }
+.scan-button:hover,.primary-action:hover { background:linear-gradient(140deg,#4b82ff,#1f4fd1); }
+.tabs button.active { color:#2f63e8; }
+.tabs button.active:after { background:#2f6bff; }
+.tabs b { background:#e7efff; color:#2f63e8; }
+.blue { color:#2f63e8; background:#e8efff; }
+.device-icon { color:#2f63e8; }
+.scan-required { color:#2f63e8; }
+.signed-user { background:#e7efff; color:#2f55b6; }
+.admin-lock { background:#e7efff; color:#2f55b6; }
+.admin-switch button.active { color:#2f63e8; }
+.auth-card .brand-mark,.brand-mark { background:linear-gradient(145deg,#3975ff,#2455d9); box-shadow:0 5px 10px #2b61e938; }
+.avatar { background:#e7efff; color:#2f63e8; }
+.profile button { color:#2f63e8; }
+.admin-note { background:#eef3ff; color:#5e6e8b; }
+.admin-note>span { border-color:#9eb7ee; }
+.role-pill.operator { color:#2d67dc; background:#e7efff; }
