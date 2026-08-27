@@ -1,0 +1,29 @@
+/** PDA CONTROL — Google Apps Script backend */
+const SPREADSHEET_ID = 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE';
+const DRIVE_FOLDER_NAME = 'PDA Control - Verification Photos';
+
+function initialize() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  [['Devices', ['Device ID', 'Name', 'Serial', 'Status', 'Current user', 'Updated at']], ['Transactions', ['Transaction ID', 'Timestamp', 'Action', 'Device ID', 'User', 'Note', 'Photo URL']]].forEach(([name, headers]) => {
+    let sheet = ss.getSheetByName(name); if (!sheet) sheet = ss.insertSheet(name);
+    if (sheet.getLastRow() === 0) sheet.appendRow(headers); sheet.setFrozenRows(1);
+  });
+  const devices = ss.getSheetByName('Devices');
+  if (devices.getLastRow() === 1) {
+    const rows = Array.from({ length: 11 }, (_, i) => [`PDA-${String(i + 1).padStart(2, '0')}`, `PDA Scanner ${String(i + 1).padStart(2, '0')}`, `ZB-${202601 + i}`, 'available', '', new Date()]);
+    devices.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+  }
+  getPhotoFolder_();
+}
+
+function doPost(e) {
+  const payload = JSON.parse(e.postData.contents); const ss = SpreadsheetApp.openById(SPREADSHEET_ID); const event = payload.event;
+  const photoUrl = savePhoto_(event.photo, `${event.deviceId}_${event.type}_${event.at}`);
+  ss.getSheetByName('Transactions').appendRow([event.id, new Date(event.at), event.type, event.deviceId, event.user, event.note || '', photoUrl]);
+  const devices = ss.getSheetByName('Devices'); const rows = devices.getDataRange().getValues(); const row = rows.findIndex((item, index) => index > 0 && item[0] === event.deviceId) + 1;
+  if (row > 1) devices.getRange(row, 4, 1, 3).setValues([[payload.device.status, payload.device.holder || '', new Date()]]);
+  return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
+}
+function doGet() { return ContentService.createTextOutput(JSON.stringify({ ok: true, service: 'PDA Control' })).setMimeType(ContentService.MimeType.JSON); }
+function getPhotoFolder_() { const folders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME); return folders.hasNext() ? folders.next() : DriveApp.createFolder(DRIVE_FOLDER_NAME); }
+function savePhoto_(dataUrl, name) { if (!dataUrl) return ''; const matches = dataUrl.match(/^data:(.+);base64,(.+)$/); if (!matches) return ''; const blob = Utilities.newBlob(Utilities.base64Decode(matches[2]), matches[1], `${name}.jpg`); return getPhotoFolder_().createFile(blob).getUrl(); }
