@@ -50,3 +50,17 @@ body { background:var(--bg); color:var(--ink); font-family:"Segoe UI", "Noto San
 .admin-note { background:#eef3ff; color:#5e6e8b; }
 .admin-note>span { border-color:#9eb7ee; }
 .role-pill.operator { color:#2d67dc; background:#e7efff; }
+.form-actions,.device-form-actions { display:flex; gap:9px; align-items:center; margin-top:22px; }
+.form-actions .primary-action,.device-form-actions .primary-action { flex:1; margin-top:0; }
+.secondary-action { flex:0 0 auto; border:1px solid #d9e2f7; border-radius:12px; padding:14px 16px; background:#f7f9ff; color:#4668ad; font-size:11px; font-weight:800; }
+.secondary-action:hover { background:#edf3ff; }
+.admin-row-actions { display:flex; align-items:center; gap:6px; margin-left:auto; }
+.row-action { border:1px solid #d9e2f7; border-radius:7px; padding:6px 8px; background:#f7f9ff; color:#2f63e8; font-size:10px; font-weight:800; white-space:nowrap; }
+.row-action:hover { background:#eaf1ff; }
+.row-action.danger { border-color:#f0d5d9; background:#fff7f8; color:#bd5664; }
+.row-action.danger:hover { background:#ffedf0; }
+.row-action:disabled { cursor:not-allowed; opacity:.45; }
+.user-row .role-pill { flex:none; }
+.device-form-actions { margin-top:0; }
+.device-form-actions .secondary-action { padding:14px 13px; }
+@media (max-width:800px) { .admin-row-actions { gap:4px; }.row-action { padding:6px; }.user-row { flex-wrap:wrap; }.user-row .admin-row-actions { margin-left:42px; }.device-form-actions { display:grid; grid-template-columns:1fr 1fr; }.device-form-actions .primary-action { min-width:0; } }
