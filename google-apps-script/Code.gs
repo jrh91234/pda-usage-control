@@ -24,6 +24,11 @@ function doPost(e) {
   if (row > 1) devices.getRange(row, 4, 1, 3).setValues([[payload.device.status, payload.device.holder || '', new Date()]]);
   return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
 }
-function doGet() { return ContentService.createTextOutput(JSON.stringify({ ok: true, service: 'PDA Control' })).setMimeType(ContentService.MimeType.JSON); }
+function doGet() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const devices = ss.getSheetByName('Devices').getDataRange().getValues().slice(1).map(row => ({ id: row[0], name: row[1], serial: row[2], status: row[3], holder: row[4] || undefined, since: row[5] ? Utilities.formatDate(new Date(row[5]), Session.getScriptTimeZone(), 'HH:mm') : undefined }));
+  const events = ss.getSheetByName('Transactions').getDataRange().getValues().slice(1).map(row => ({ id: row[0], at: new Date(row[1]).toISOString(), type: row[2], deviceId: row[3], user: row[4], note: row[5], photo: row[6] || undefined }));
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, devices, events })).setMimeType(ContentService.MimeType.JSON);
+}
 function getPhotoFolder_() { const folders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME); return folders.hasNext() ? folders.next() : DriveApp.createFolder(DRIVE_FOLDER_NAME); }
 function savePhoto_(dataUrl, name) { if (!dataUrl) return ''; const matches = dataUrl.match(/^data:(.+);base64,(.+)$/); if (!matches) return ''; const blob = Utilities.newBlob(Utilities.base64Decode(matches[2]), matches[1], `${name}.jpg`); return getPhotoFolder_().createFile(blob).getUrl(); }
