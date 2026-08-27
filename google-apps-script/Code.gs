@@ -23,6 +23,7 @@ function initialize() {
 function doPost(e) {
   const payload = JSON.parse(e.postData.contents); const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   if (payload.action === 'registerUser') return registerUser_(ss, payload.user);
+  if (payload.action === 'registerDevice') return registerDevice_(ss, payload.device);
   if (payload.action === 'login') return loginUser_(ss, payload.username, payload.password);
   const event = payload.event;
   const photoUrl = savePhoto_(event.photo, `${event.deviceId}_${event.type}_${event.at}`);
@@ -40,6 +41,7 @@ function doGet() {
 }
 function registerUser_(ss, user) { const sheet = ss.getSheetByName('Users'); const values = sheet.getDataRange().getValues(); const existing = values.findIndex((row, index) => index > 0 && String(row[0]).toLowerCase() === String(user.username).toLowerCase()) + 1; const row = [user.username, user.fullName, user.role || 'operator', user.status || 'active', hashPassword_(user.password || ''), new Date()]; if (existing > 1) sheet.getRange(existing, 1, 1, row.length).setValues([row]); else sheet.appendRow(row); return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON); }
 function loginUser_(ss, username, password) { const rows = ss.getSheetByName('Users').getDataRange().getValues(); const row = rows.find((item, index) => index > 0 && String(item[0]).toLowerCase() === String(username).toLowerCase()); if (!row || row[3] !== 'active' || row[4] !== hashPassword_(password || '')) return ContentService.createTextOutput(JSON.stringify({ ok: false })).setMimeType(ContentService.MimeType.JSON); return ContentService.createTextOutput(JSON.stringify({ ok: true, user: { username: row[0], fullName: row[1], role: row[2] || 'operator', status: row[3] } })).setMimeType(ContentService.MimeType.JSON); }
+function registerDevice_(ss, device) { const sheet = ss.getSheetByName('Devices'); const values = sheet.getDataRange().getValues(); const existing = values.findIndex((row, index) => index > 0 && String(row[0]).toLowerCase() === String(device.id).toLowerCase()) + 1; const row = [device.id, device.name, device.serial, 'available', '', new Date()]; if (existing > 1) sheet.getRange(existing, 1, 1, row.length).setValues([row]); else sheet.appendRow(row); return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON); }
 function hashPassword_(password) { return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, password, Utilities.Charset.UTF_8).map(byte => (byte < 0 ? byte + 256 : byte).toString(16).padStart(2, '0')).join(''); }
 function getPhotoFolder_() { const folders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME); return folders.hasNext() ? folders.next() : DriveApp.createFolder(DRIVE_FOLDER_NAME); }
 function savePhoto_(dataUrl, name) { if (!dataUrl) return ''; const matches = dataUrl.match(/^data:(.+);base64,(.+)$/); if (!matches) return ''; const blob = Utilities.newBlob(Utilities.base64Decode(matches[2]), matches[1], `${name}.jpg`); return getPhotoFolder_().createFile(blob).getUrl(); }
