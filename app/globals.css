@@ -64,3 +64,12 @@ body { background:var(--bg); color:var(--ink); font-family:"Segoe UI", "Noto San
 .device-form-actions { margin-top:0; }
 .device-form-actions .secondary-action { padding:14px 13px; }
 @media (max-width:800px) { .admin-row-actions { gap:4px; }.row-action { padding:6px; }.user-row { flex-wrap:wrap; }.user-row .admin-row-actions { margin-left:42px; }.device-form-actions { display:grid; grid-template-columns:1fr 1fr; }.device-form-actions .primary-action { min-width:0; } }
+.history-controls { display:grid; grid-template-columns:1fr 1fr minmax(220px,1.4fr) auto; gap:12px; align-items:end; margin-top:24px; }
+.history-controls label { display:flex; flex-direction:column; gap:6px; color:#69788d; font-size:10px; font-weight:800; }
+.history-controls input,.history-controls select { width:100%; min-height:42px; padding:10px 12px; border:1px solid #d9e2f1; border-radius:10px; background:#fff; color:#2d3c52; font-size:12px; }
+.history-controls input:focus,.history-controls select:focus { border-color:#6e95ef; outline:3px solid #dce7ff; }
+.clear-filters { min-height:42px; padding:10px 14px; border:1px solid #d9e2f1; border-radius:10px; background:#f7f9ff; color:#4668ad; font-size:11px; font-weight:800; white-space:nowrap; }
+.clear-filters:hover { background:#edf3ff; }
+.filter-message { margin:10px 0 0; color:#bd5664; font-size:11px; font-weight:700; }
+.empty-state { margin-top:20px; padding:34px 20px; border:1px dashed #cad8ef; border-radius:14px; background:#f8faff; color:#70809a; text-align:center; font-size:12px; }
+@media (max-width:800px) { .history-controls { grid-template-columns:1fr 1fr; }.history-controls label:nth-child(3) { grid-column:1 / -1; }.clear-filters { width:100%; } }
