@@ -1,6 +1,6 @@
 /** PDA CONTROL — Google Apps Script backend */
 const SPREADSHEET_ID = '1u2Ywi5fqT1ApY9CMCCSiAYNkSCTBFs-QnEeXOKfp2LA';
-const DRIVE_FOLDER_NAME = 'PDA Control - Verification Photos';
+const DRIVE_FOLDER_ID = '10x4TZ1tOBsp0w5jHK1NW967EejoGy7Yi';
 
 function initialize() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -52,5 +52,14 @@ function updateDevice_(ss, originalId, device) { const sheet = ss.getSheetByName
 function deleteDevice_(ss, deviceId) { const sheet = ss.getSheetByName('Devices'); const values = sheet.getDataRange().getValues(); const rowNumber = values.findIndex((row, index) => index > 0 && String(row[0]).toLowerCase() === String(deviceId || '').toLowerCase()) + 1; if (rowNumber <= 1) return jsonResponse_({ ok: false, message: 'ไม่พบอุปกรณ์ที่ต้องการลบ' }); if (String(values[rowNumber - 1][3]).toLowerCase() === 'in-use') return jsonResponse_({ ok: false, message: 'กรุณาคืนเครื่องก่อนลบอุปกรณ์นี้' }); sheet.deleteRow(rowNumber); return jsonResponse_({ ok: true }); }
 function jsonResponse_(payload) { return ContentService.createTextOutput(JSON.stringify(payload)).setMimeType(ContentService.MimeType.JSON); }
 function hashPassword_(password) { return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, password, Utilities.Charset.UTF_8).map(byte => (byte < 0 ? byte + 256 : byte).toString(16).padStart(2, '0')).join(''); }
-function getPhotoFolder_() { const folders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME); return folders.hasNext() ? folders.next() : DriveApp.createFolder(DRIVE_FOLDER_NAME); }
-function savePhoto_(dataUrl, name) { if (!dataUrl) return ''; const matches = dataUrl.match(/^data:(.+);base64,(.+)$/); if (!matches) return ''; const blob = Utilities.newBlob(Utilities.base64Decode(matches[2]), matches[1], `${name}.jpg`); return getPhotoFolder_().createFile(blob).getUrl(); }
+function getPhotoFolder_() { return DriveApp.getFolderById(DRIVE_FOLDER_ID); }
+function savePhoto_(dataUrl, name) {
+  if (!dataUrl) return '';
+  const matches = dataUrl.match(/^data:(.+);base64,(.+)$/);
+  if (!matches) return '';
+  const contentType = matches[1].split(';')[0] || 'image/jpeg';
+  const extension = contentType.split('/')[1] || 'jpg';
+  const safeName = String(name).replace(/[^a-zA-Z0-9._-]+/g, '_');
+  const blob = Utilities.newBlob(Utilities.base64Decode(matches[2]), contentType, `${safeName}.${extension}`);
+  return getPhotoFolder_().createFile(blob).getUrl();
+}

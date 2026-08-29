@@ -6,10 +6,12 @@
 - Web app: https://script.google.com/macros/s/AKfycbwGAfrkDX5mfwiFpp-j_vngJLeKRf2YCHSN3R07qu2tRju4Q5-0K2drZdWGhY9IV2x-/exec
 - Script ID: `1ubuLyujo3TZ2MEy8aSsQui3oUmev1kFwxDj0QgPAyypZtvXUz-tfw2ZT`
 
-การ deploy ตั้งค่าเป็น **Anyone / ทุกคน** และรันฟังก์ชัน `initialize` แล้ว เพื่อสร้างตาราง Devices, Transactions, Users, อุปกรณ์เริ่มต้น 11 เครื่อง, บัญชี admin และโฟลเดอร์รูปใน Google Drive.
+การ deploy ตั้งค่าเป็น **Anyone / ทุกคน** และรันฟังก์ชัน `initialize` แล้ว เพื่อสร้างตาราง Devices, Transactions, Users, อุปกรณ์เริ่มต้น 11 เครื่อง และบัญชี admin โดยรูปยืนยันจะถูกบันทึกลงโฟลเดอร์ Google Drive ที่กำหนดไว้โดยตรง:
+
+`https://drive.google.com/drive/folders/10x4TZ1tOBsp0w5jHK1NW967EejoGy7Yi`
 
 หากต้องการ deploy เวอร์ชันใหม่ด้วย Clasp ให้รัน `clasp push` และ `clasp deploy` จากโฟลเดอร์ `google-apps-script`.
 
-เมื่อตั้งค่าแล้ว ทุกการเบิก/คืนจะเพิ่มแถวใน Transactions, อัปเดตสถานะ Devices, ลงทะเบียนผู้ใช้และอุปกรณ์จากหน้า Admin และเก็บภาพยืนยันไว้ในโฟลเดอร์ Google Drive อัตโนมัติ.
+เมื่อตั้งค่าแล้ว ทุกการเบิก/คืนจะเพิ่มแถวใน Transactions, อัปเดตสถานะ Devices, ลงทะเบียนผู้ใช้และอุปกรณ์จากหน้า Admin และเก็บภาพยืนยันไว้ในโฟลเดอร์ Google Drive นี้อัตโนมัติ.
 
 บัญชีเริ่มต้นสำหรับเข้าใช้งานครั้งแรกคือ `admin` / `PDAadmin2026!` จากนั้นแนะนำให้ Admin ลงทะเบียนบัญชีของพนักงานและเปลี่ยนรหัสผ่านตามนโยบายองค์กร.
