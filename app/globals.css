@@ -494,4 +494,24 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .qr-paper strong { margin-top: 10px; color: var(--ink-strong); font-size: 13px; }
 .qr-paper small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .qr-paper > span { padding: 60px 22px; color: var(--muted); font-size: 11px; }
+.qr-selection { margin-bottom: 20px; padding: 14px; border: 1px solid #dce6f4; border-radius: 12px; background: #fff; }
+.qr-selection-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.qr-selection-heading strong, .qr-selection-heading small { display: block; }
+.qr-selection-heading strong { color: var(--ink-strong); font-size: 12px; }
+.qr-selection-heading small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.qr-selection-actions { display: flex; gap: 5px; }
+.qr-selection-actions button { padding: 5px 7px; border: 1px solid #d4e0f5; border-radius: 7px; background: #f7f9ff; color: var(--primary); font-size: 9px; font-weight: 800; }
+.qr-selection-actions button:hover { background: #eaf1ff; }
+.qr-device-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; max-height: 220px; overflow: auto; padding-right: 2px; }
+.qr-device-option { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 8px; border: 1px solid #e4ebf5; border-radius: 9px; background: #fbfcfe; cursor: pointer; }
+.qr-device-option:hover, .qr-device-option.selected { border-color: #9ebbf9; background: #f0f5ff; }
+.qr-device-option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.qr-device-check { display: grid; place-items: center; flex: none; width: 17px; height: 17px; border: 1px solid #c4d1e5; border-radius: 5px; background: #fff; color: transparent; font-size: 11px; font-weight: 900; }
+.qr-device-option.selected .qr-device-check { border-color: var(--primary); background: var(--primary); color: #fff; }
+.qr-device-label { min-width: 0; flex: 1; }
+.qr-device-label strong, .qr-device-label small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qr-device-label strong { color: var(--ink-strong); font-size: 10px; }
+.qr-device-label small { margin-top: 2px; color: var(--muted); font-size: 8px; }
+.qr-device-option .pill { flex: none; padding: 4px 5px; font-size: 8px; }
 @media (max-width: 800px) { .qr-layout { grid-template-columns: 1fr; }.qr-preview { order: -1; } }
+@media (max-width: 560px) { .qr-device-options { grid-template-columns: 1fr; }.qr-selection-heading { align-items: stretch; flex-direction: column; }.qr-selection-actions { justify-content: flex-end; } }
