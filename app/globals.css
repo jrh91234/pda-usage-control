@@ -494,6 +494,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .qr-paper strong { margin-top: 10px; color: var(--ink-strong); font-size: 13px; }
 .qr-paper small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .qr-paper > span { padding: 60px 22px; color: var(--muted); font-size: 11px; }
+.qr-print-view { display: none; }
 .qr-selection { margin-bottom: 20px; padding: 14px; border: 1px solid #dce6f4; border-radius: 12px; background: #fff; }
 .qr-selection-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .qr-selection-heading strong, .qr-selection-heading small { display: block; }
@@ -515,3 +516,18 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .qr-device-option .pill { flex: none; padding: 4px 5px; font-size: 8px; }
 @media (max-width: 800px) { .qr-layout { grid-template-columns: 1fr; }.qr-preview { order: -1; } }
 @media (max-width: 560px) { .qr-device-options { grid-template-columns: 1fr; }.qr-selection-heading { align-items: stretch; flex-direction: column; }.qr-selection-actions { justify-content: flex-end; } }
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body * { visibility: hidden !important; }
+  .qr-print-view, .qr-print-view * { visibility: visible !important; }
+  .qr-print-view { position: fixed; inset: 0; display: block; width: 100%; min-height: 100vh; padding: 12mm; background: #fff; color: #0b1934; text-align: center; }
+  .qr-print-view h1 { margin: 0 0 4px; font-family: Arial, sans-serif; font-size: 20px; }
+  .qr-print-view > p { margin: 0 0 18px; color: #66758e; font-family: Arial, sans-serif; font-size: 11px; }
+  .qr-print-view .qr-print-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .qr-print-view .qr-print-card { break-inside: avoid; padding: 12px; border: 1px solid #dce5f0; border-radius: 10px; }
+  .qr-print-view .qr-print-card img { display: block; height: auto; margin: 0 auto 8px; image-rendering: pixelated; }
+  .qr-print-view .qr-print-card strong, .qr-print-view .qr-print-card small { display: block; font-family: Arial, sans-serif; }
+  .qr-print-view .qr-print-card strong { font-size: 14px; }
+  .qr-print-view .qr-print-card small { margin-top: 3px; color: #66758e; font-size: 10px; }
+}

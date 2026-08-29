@@ -163,6 +163,7 @@ function QRCodeGenerator({ devices }: { devices: Device[] }) {
   const [qrSize, setQrSize] = useState(256);
   const [qrResult, setQrResult] = useState<{ key: string; codes: Record<string, string> } | null>(null);
   const [qrError, setQrError] = useState('');
+  const [isPrintPreview, setIsPrintPreview] = useState(false);
   const selectedDeviceIdsKey = selectedDeviceIds.join('|');
   const selectedDevices = devices.filter((device) => selectedDeviceIds.includes(device.id));
   const previewDevice = selectedDevices.find((device) => device.id === previewDeviceId) || selectedDevices[0];
@@ -204,43 +205,19 @@ function QRCodeGenerator({ devices }: { devices: Device[] }) {
     setPreviewDeviceId('');
   }
 
+  useEffect(() => {
+    if (!isPrintPreview) return;
+    const timer = window.setTimeout(() => window.print(), 100);
+    const handleAfterPrint = () => setIsPrintPreview(false);
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => { window.clearTimeout(timer); window.removeEventListener('afterprint', handleAfterPrint); };
+  }, [isPrintPreview]);
+
   function printQRCode() {
-    if (!qrReady) return;
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=520,height=700');
-    if (!printWindow) { setQrError('เบราว์เซอร์บล็อกหน้าต่างพิมพ์ กรุณาอนุญาต Pop-up ก่อน'); return; }
-    const printDocument = printWindow.document;
-    const printSize = Math.min(qrSize, 360);
-    const gridSize = Math.min(Math.max(qrSize, 220), 360);
-    printDocument.title = 'PDA Control QR Codes';
-    const style = printDocument.createElement('style');
-    style.textContent = '@page { size: A4; margin: 12mm; } body { margin: 0; color: #0b1934; font-family: Arial, sans-serif; text-align: center; } h1 { margin: 0 0 4px; font-size: 20px; } .subtitle { margin: 0 0 18px; color: #66758e; font-size: 11px; } .qr-print-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(' + gridSize + 'px, 1fr)); gap: 16px; } .qr-print-card { break-inside: avoid; padding: 12px; border: 1px solid #dce5f0; border-radius: 10px; } .qr-print-card img { display: block; width: min(100%, ' + printSize + 'px); height: auto; margin: 0 auto 8px; image-rendering: pixelated; } .qr-print-card strong, .qr-print-card small { display: block; } .qr-print-card strong { font-size: 14px; } .qr-print-card small { margin-top: 3px; color: #66758e; font-size: 10px; }';
-    printDocument.head.append(style);
-    const heading = printDocument.createElement('h1');
-    heading.textContent = 'PDA CONTROL · DEVICE QR';
-    const subtitle = printDocument.createElement('p');
-    subtitle.className = 'subtitle';
-    subtitle.textContent = selectedDevices.length + ' เครื่อง · ขนาดต้นฉบับ ' + qrSize + ' px';
-    const grid = printDocument.createElement('main');
-    grid.className = 'qr-print-grid';
-    selectedDevices.forEach((device) => {
-      const card = printDocument.createElement('article');
-      card.className = 'qr-print-card';
-      const image = printDocument.createElement('img');
-      image.src = qrCodes[device.id];
-      image.alt = 'QR ' + device.id;
-      const code = printDocument.createElement('strong');
-      code.textContent = device.id;
-      const name = printDocument.createElement('small');
-      name.textContent = device.name;
-      card.append(image, code, name);
-      grid.append(card);
-    });
-    printDocument.body.append(heading, subtitle, grid);
-    printDocument.close();
-    window.setTimeout(() => { printWindow.focus(); printWindow.print(); printWindow.close(); }, 300);
+    if (qrReady) setIsPrintPreview(true);
   }
 
-  return <section className="qr-generator"><div className="form-title"><span className="stat-icon blue">⌗</span><div><h3>สร้าง QR Code อุปกรณ์</h3><p>เลือกได้หลายเครื่อง กำหนดขนาด แล้วพิมพ์ลงกระดาษเป็นชุดเดียว</p></div></div>{devices.length ? <div className="qr-layout"><div className="qr-controls"><div className="qr-selection"><div className="qr-selection-heading"><div><strong>เลือกเครื่องที่จะพิมพ์</strong><small>เลือกแล้ว {selectedDevices.length} จาก {devices.length} เครื่อง</small></div><div className="qr-selection-actions"><button type="button" onClick={selectAllDevices}>เลือกทั้งหมด</button><button type="button" onClick={clearDeviceSelection}>ล้าง</button></div></div><div className="qr-device-options">{devices.map((device) => <label className={'qr-device-option ' + (selectedDeviceIds.includes(device.id) ? 'selected' : '')} key={device.id}><input type="checkbox" checked={selectedDeviceIds.includes(device.id)} onChange={() => toggleDevice(device.id)} /><span className="qr-device-check">✓</span><span className="qr-device-label"><strong>{device.id}</strong><small>{device.name}</small></span><span className={'pill ' + device.status}>{device.status === 'available' ? 'พร้อมใช้' : 'กำลังใช้'}</span></label>)}</div></div><label>ขนาด QR Code<div className="qr-size-control"><input type="range" min="128" max="1024" step="16" value={qrSize} onChange={(event) => updateSize(event.target.value)} /><input aria-label="ขนาด QR Code เป็นพิกเซล" type="number" min="128" max="1024" step="16" value={qrSize} onChange={(event) => updateSize(event.target.value)} /><span>px</span></div></label><p className="qr-hint">ขนาดต้นฉบับ 128–1024 px · พิมพ์หลายเครื่องลงกระดาษ A4 อัตโนมัติ</p><div className="qr-actions"><a className={'qr-download ' + (!qrDataUrl ? 'disabled' : '')} href={qrDataUrl || undefined} download={previewDevice ? 'QR-' + previewDevice.id + '.png' : undefined} onClick={(event) => { if (!qrDataUrl) event.preventDefault(); }}>ดาวน์โหลดตัวอย่าง PNG</a><button className="secondary-action" type="button" onClick={printQRCode} disabled={!qrReady}>พิมพ์ {selectedDevices.length || ''} เครื่อง</button></div>{qrError && <p className="form-message">{qrError}</p>}</div><div className="qr-preview"><div className="qr-paper">{qrDataUrl ? <img src={qrDataUrl} alt={'QR Code ' + (previewDevice?.id || '')} width={qrSize} height={qrSize} /> : <span>{selectedDevices.length ? 'กำลังสร้าง QR…' : 'เลือกอุปกรณ์เพื่อสร้าง QR'}</span>}{previewDevice && <><strong>{previewDevice.id}</strong><small>{previewDevice.name}</small></>}</div></div></div> : <div className="empty-state">ยังไม่มีอุปกรณ์ กรุณาลงทะเบียนอุปกรณ์ก่อนสร้าง QR</div>}</section>;
+  return <section className="qr-generator"><div className="form-title"><span className="stat-icon blue">⌗</span><div><h3>สร้าง QR Code อุปกรณ์</h3><p>เลือกได้หลายเครื่อง กำหนดขนาด แล้วพิมพ์ลงกระดาษเป็นชุดเดียว</p></div></div>{devices.length ? <div className="qr-layout"><div className="qr-controls"><div className="qr-selection"><div className="qr-selection-heading"><div><strong>เลือกเครื่องที่จะพิมพ์</strong><small>เลือกแล้ว {selectedDevices.length} จาก {devices.length} เครื่อง</small></div><div className="qr-selection-actions"><button type="button" onClick={selectAllDevices}>เลือกทั้งหมด</button><button type="button" onClick={clearDeviceSelection}>ล้าง</button></div></div><div className="qr-device-options">{devices.map((device) => <label className={'qr-device-option ' + (selectedDeviceIds.includes(device.id) ? 'selected' : '')} key={device.id}><input type="checkbox" checked={selectedDeviceIds.includes(device.id)} onChange={() => toggleDevice(device.id)} /><span className="qr-device-check">✓</span><span className="qr-device-label"><strong>{device.id}</strong><small>{device.name}</small></span><span className={'pill ' + device.status}>{device.status === 'available' ? 'พร้อมใช้' : 'กำลังใช้'}</span></label>)}</div></div><label>ขนาด QR Code<div className="qr-size-control"><input type="range" min="128" max="1024" step="16" value={qrSize} onChange={(event) => updateSize(event.target.value)} /><input aria-label="ขนาด QR Code เป็นพิกเซล" type="number" min="128" max="1024" step="16" value={qrSize} onChange={(event) => updateSize(event.target.value)} /><span>px</span></div></label><p className="qr-hint">ขนาดต้นฉบับ 128–1024 px · พิมพ์หลายเครื่องลงกระดาษ A4 อัตโนมัติ</p><div className="qr-actions"><a className={'qr-download ' + (!qrDataUrl ? 'disabled' : '')} href={qrDataUrl || undefined} download={previewDevice ? 'QR-' + previewDevice.id + '.png' : undefined} onClick={(event) => { if (!qrDataUrl) event.preventDefault(); }}>ดาวน์โหลดตัวอย่าง PNG</a><button className="secondary-action" type="button" onClick={printQRCode} disabled={!qrReady}>พิมพ์ {selectedDevices.length || ''} เครื่อง</button></div>{qrError && <p className="form-message">{qrError}</p>}</div><div className="qr-preview"><div className="qr-paper">{qrDataUrl ? <img src={qrDataUrl} alt={'QR Code ' + (previewDevice?.id || '')} width={qrSize} height={qrSize} /> : <span>{selectedDevices.length ? 'กำลังสร้าง QR…' : 'เลือกอุปกรณ์เพื่อสร้าง QR'}</span>}{previewDevice && <><strong>{previewDevice.id}</strong><small>{previewDevice.name}</small></>}</div></div></div> : <div className="empty-state">ยังไม่มีอุปกรณ์ กรุณาลงทะเบียนอุปกรณ์ก่อนสร้าง QR</div>}{isPrintPreview && <div className="qr-print-view"><h1>PDA CONTROL · DEVICE QR</h1><p>{selectedDevices.length} เครื่อง · ขนาดต้นฉบับ {qrSize} px</p><div className="qr-print-grid">{selectedDevices.map((device) => <article className="qr-print-card" key={device.id}><img src={qrCodes[device.id]} alt={'QR ' + device.id} style={{ width: Math.min(qrSize, 360) }} /><strong>{device.id}</strong><small>{device.name}</small></article>)}</div></div>}</section>;
 }
 
 function AdminPage({ users, devices, currentUsername, onRegister, onUpdateUser, onDeleteUser, onRegisterDevice, onUpdateDevice, onDeleteDevice }: AdminPageProps) {
