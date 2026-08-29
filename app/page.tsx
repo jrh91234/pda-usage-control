@@ -7,6 +7,7 @@ type DeviceStatus = 'available' | 'in-use';
 type Device = { id: string; name: string; serial: string; status: DeviceStatus; holder?: string; since?: string };
 type UsageEvent = { id: string; deviceId: string; type: 'checkout' | 'return'; user: string; at: string; photo?: string; note?: string };
 type RegisteredUser = { username: string; fullName: string; role: 'admin' | 'operator'; status: 'active' | 'inactive'; password?: string };
+type Notification = { tone: 'success' | 'error'; text: string };
 
 const initialDevices: Device[] = Array.from({ length: 11 }, (_, index) => {
   const number = String(index + 1).padStart(2, '0');
@@ -40,10 +41,18 @@ export default function Home() {
   const [photo, setPhoto] = useState<string | undefined>();
   const [isScanning, setIsScanning] = useState(false);
   const [message, setMessage] = useState('');
+  const [notification, setNotification] = useState<Notification | null>(null);
   const [signedInUser, setSignedInUser] = useState('กำลังตรวจสอบบัญชี…');
   const videoRef = useRef<HTMLVideoElement>(null);
   const scanTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const scannerControls = useRef<{ stop: () => void } | undefined>(undefined);
+  const notificationTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  function showNotification(text: string, tone: Notification['tone'] = 'success') {
+    setNotification({ text, tone });
+    if (notificationTimer.current) window.clearTimeout(notificationTimer.current);
+    notificationTimer.current = window.setTimeout(() => setNotification(null), 3800);
+  }
+  useEffect(() => () => { if (notificationTimer.current) window.clearTimeout(notificationTimer.current); }, []);
   useEffect(() => {
     fetch('/api/auth/session').then((response) => response.json()).then((data) => {
       if (data.authenticated && data.user) { setAuthUser(data.user); setSignedInUser(data.user.fullName || data.user.username); setUsername(data.user.username); setAuthStatus('signed-in'); }
@@ -90,39 +99,39 @@ export default function Home() {
     if (!activeDevice || !photo) { setMessage('กรุณาถ่ายหรือแนบรูปยืนยันก่อนบันทึก'); return; }
     const now = new Date().toISOString(); const event: UsageEvent = { id: crypto.randomUUID(), deviceId: activeDevice.id, type: mode, user: mode === 'return' ? activeDevice.holder || username : username, at: now, photo, note };
     const nextDevice: Device = mode === 'checkout' ? { ...activeDevice, status: 'in-use', holder: username, since: formatTime(now) } : { ...activeDevice, status: 'available', holder: undefined, since: undefined };
-    setDevices((items) => items.map((item) => item.id === nextDevice.id ? nextDevice : item)); setEvents((items) => [event, ...items]); setMessage('บันทึกเรียบร้อยแล้ว');
-    if (appScriptUrl) { try { await fetch(appScriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: mode, device: nextDevice, event }) }); } catch { setMessage('บันทึกในเครื่องแล้ว แต่ส่งข้อมูลไป Google ไม่สำเร็จ'); } }
+    setDevices((items) => items.map((item) => item.id === nextDevice.id ? nextDevice : item)); setEvents((items) => [event, ...items]);
+    if (appScriptUrl) { try { await fetch(appScriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: mode, device: nextDevice, event }) }); showNotification(mode === 'checkout' ? 'บันทึกการเบิกสำเร็จแล้ว' : 'บันทึกการคืนสำเร็จแล้ว'); } catch { const failureMessage = 'บันทึกในหน้านี้แล้ว แต่ส่งข้อมูลไป Google ไม่สำเร็จ'; setMessage(failureMessage); showNotification(failureMessage, 'error'); } } else { showNotification('บันทึกในหน้านี้แล้ว แต่ยังไม่ได้เชื่อม Google', 'error'); }
     window.setTimeout(closeFlow, 700);
   }
-  async function sendAdminAction(payload: Record<string, unknown>, failureMessage: string) {
-    if (!appScriptUrl) return;
-    try { await fetch(appScriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) }); } catch { setMessage(failureMessage); }
+  async function sendAdminAction(payload: Record<string, unknown>, successMessage: string, failureMessage: string) {
+    if (!appScriptUrl) { showNotification('บันทึกในหน้านี้แล้ว แต่ยังไม่ได้เชื่อม Google', 'error'); return; }
+    try { await fetch(appScriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) }); showNotification(successMessage); } catch { setMessage(failureMessage); showNotification(failureMessage, 'error'); }
   }
   async function registerUser(user: RegisteredUser) {
     const savedUser = { ...user, password: undefined };
     setRegisteredUsers((items) => [savedUser, ...items.filter((item) => item.username.toLowerCase() !== user.username.toLowerCase())]);
-    await sendAdminAction({ action: 'registerUser', user }, 'เพิ่มผู้ใช้ในหน้านี้แล้ว แต่ส่งไป Google ไม่สำเร็จ');
+    await sendAdminAction({ action: 'registerUser', user }, 'บันทึกผู้ใช้งานสำเร็จแล้ว', 'เพิ่มผู้ใช้ในหน้านี้แล้ว แต่ส่งไป Google ไม่สำเร็จ');
   }
   async function updateUser(user: RegisteredUser, originalUsername: string) {
     const savedUser = { ...user, password: undefined };
     setRegisteredUsers((items) => items.map((item) => item.username.toLowerCase() === originalUsername.toLowerCase() ? savedUser : item));
-    await sendAdminAction({ action: 'updateUser', originalUsername, user }, 'แก้ไขผู้ใช้ในหน้านี้แล้ว แต่ส่งไป Google ไม่สำเร็จ');
+    await sendAdminAction({ action: 'updateUser', originalUsername, user }, 'บันทึกการแก้ไขผู้ใช้งานสำเร็จแล้ว', 'แก้ไขผู้ใช้ในหน้านี้แล้ว แต่ส่งไป Google ไม่สำเร็จ');
   }
   async function deleteUser(usernameToDelete: string) {
     setRegisteredUsers((items) => items.filter((item) => item.username.toLowerCase() !== usernameToDelete.toLowerCase()));
-    await sendAdminAction({ action: 'deleteUser', username: usernameToDelete }, 'ลบผู้ใช้ในหน้านี้แล้ว แต่ส่งไป Google ไม่สำเร็จ');
+    await sendAdminAction({ action: 'deleteUser', username: usernameToDelete }, 'ลบผู้ใช้งานสำเร็จแล้ว', 'ลบผู้ใช้ในหน้านี้แล้ว แต่ส่งไป Google ไม่สำเร็จ');
   }
   async function registerDevice(device: Device) {
     setDevices((items) => [device, ...items.filter((item) => item.id.toLowerCase() !== device.id.toLowerCase())]);
-    await sendAdminAction({ action: 'registerDevice', device }, 'เพิ่มอุปกรณ์ในหน้านี้แล้ว แต่ส่งไป Google ไม่สำเร็จ');
+    await sendAdminAction({ action: 'registerDevice', device }, 'บันทึกอุปกรณ์สำเร็จแล้ว', 'เพิ่มอุปกรณ์ในหน้านี้แล้ว แต่ส่งไป Google ไม่สำเร็จ');
   }
   async function updateDevice(device: Device, originalId: string) {
     setDevices((items) => items.map((item) => item.id.toLowerCase() === originalId.toLowerCase() ? device : item));
-    await sendAdminAction({ action: 'updateDevice', originalId, device }, 'แก้ไขอุปกรณ์ในหน้านี้แล้ว แต่ส่งไป Google ไม่สำเร็จ');
+    await sendAdminAction({ action: 'updateDevice', originalId, device }, 'บันทึกการแก้ไขอุปกรณ์สำเร็จแล้ว', 'แก้ไขอุปกรณ์ในหน้านี้แล้ว แต่ส่งไป Google ไม่สำเร็จ');
   }
   async function deleteDevice(deviceId: string) {
     setDevices((items) => items.filter((item) => item.id.toLowerCase() !== deviceId.toLowerCase()));
-    await sendAdminAction({ action: 'deleteDevice', deviceId }, 'ลบอุปกรณ์ในหน้านี้แล้ว แต่ส่งไป Google ไม่สำเร็จ');
+    await sendAdminAction({ action: 'deleteDevice', deviceId }, 'ลบอุปกรณ์สำเร็จแล้ว', 'ลบอุปกรณ์ในหน้านี้แล้ว แต่ส่งไป Google ไม่สำเร็จ');
   }
   async function login(usernameValue: string, password: string) {
     const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: usernameValue, password }) });
@@ -137,6 +146,7 @@ export default function Home() {
     <section className="topbar"><div className="brand"><span className="brand-mark">P</span><span><strong>PDA CONTROL</strong><small>Factory device custody</small></span></div><div className="today">{formatDate('2026-08-27T12:00:00')}</div><div className="profile"><span className="avatar">{signedInUser.slice(0, 2).toUpperCase()}</span><span>{signedInUser}</span><button onClick={logout} title="ออกจากระบบ">ออกจากระบบ</button></div></section>
     <section className="hero"><div><p className="eyebrow">DEVICE OPERATIONS</p><h1>ควบคุมการใช้งาน PDA<br /><em>ให้ตรวจสอบได้ทุกครั้ง</em></h1><p className="hero-copy">สแกน QR เพื่อเบิกหรือคืนเครื่อง พร้อมภาพยืนยันและประวัติที่ค้นหาได้</p></div><button className="scan-button" onClick={startScanner}><span>⌁</span> สแกน QR เครื่อง</button></section>
     <nav className="tabs" aria-label="การนำทางหลัก"><button className={screen === 'devices' ? 'active' : ''} onClick={() => setScreen('devices')}>อุปกรณ์ <b>{devices.length}</b></button><button className={screen === 'timeline' ? 'active' : ''} onClick={() => setScreen('timeline')}>ประวัติการใช้งาน</button><button className={screen === 'admin' ? 'active' : ''} onClick={() => setScreen('admin')}>ตั้งค่าระบบ <b className="admin-badge">ADMIN</b></button></nav>
+    {notification && <div className={`toast-notification ${notification.tone}`} role="status" aria-live="polite"><span>{notification.tone === 'success' ? '✓' : '!'}</span><p>{notification.text}</p><button type="button" aria-label="ปิดการแจ้งเตือน" onClick={() => setNotification(null)}>×</button></div>}
     {message && !activeDevice && !isScanning && <div className="global-message" role="status"><span>i</span><p>{message}</p></div>}
     {screen === 'devices' ? <><section className="stats"><article><span className="stat-icon green">✓</span><div><small>พร้อมใช้งาน</small><strong>{summary.available} <i>เครื่อง</i></strong></div></article><article><span className="stat-icon amber">↗</span><div><small>กำลังถูกใช้งาน</small><strong>{summary.inUse} <i>เครื่อง</i></strong></div></article><article><span className="stat-icon blue">◷</span><div><small>รายการวันนี้</small><strong>{events.length} <i>ครั้ง</i></strong></div></article></section><section className="content-head"><div><h2>รายการอุปกรณ์</h2><p>สแกน QR หรือกดปุ่มเบิก/คืนจากรายการด้านล่างได้ทันที</p></div><div className="legend"><span className="dot available" /> พร้อมใช้ <span className="dot used" /> กำลังใช้งาน</div></section><section className="device-table-wrap"><table className="device-table"><thead><tr><th>อุปกรณ์</th><th>หมายเลขเครื่อง</th><th>สถานะ</th><th>ผู้ใช้งานปัจจุบัน</th><th>เวลาเบิก</th><th>การทำงาน</th></tr></thead><tbody>{devices.map((device) => <tr key={device.id}><td><span className="table-device"><span className="device-icon">▣</span><span><strong>{device.name}</strong><small>{device.id}</small></span></span></td><td>{device.serial}</td><td><span className={`pill ${device.status}`}>{device.status === 'available' ? 'พร้อมใช้' : 'กำลังใช้'}</span></td><td>{device.holder || <span className="muted">—</span>}</td><td>{device.since ? `${device.since} น.` : <span className="muted">—</span>}</td><td><span className="table-action-group"><button className={`table-action ${device.status}`} type="button" onClick={() => openFlow(device)}>{device.status === 'available' ? 'เบิกเครื่อง' : 'คืนเครื่อง'} <span>→</span></button><small>หรือสแกน QR</small></span></td></tr>)}</tbody></table></section></> : screen === 'timeline' ? <Timeline events={sortedEvents} devices={devices} /> : authUser?.role === 'admin' ? <AdminPage users={registeredUsers} devices={devices} currentUsername={authUser.username} onRegister={registerUser} onUpdateUser={updateUser} onDeleteUser={deleteUser} onRegisterDevice={registerDevice} onUpdateDevice={updateDevice} onDeleteDevice={deleteDevice} /> : <AccessDenied />}
     {isScanning && <div className="scanner-overlay"><div className="scanner"><button className="close" onClick={stopScanner}>×</button><p className="eyebrow">QR SCANNER</p><h2>เล็งกล้องไปที่ QR ของเครื่อง</h2><div className="video-wrap"><video ref={videoRef} muted playsInline /><span className="scan-frame" /></div><p>รองรับรหัส เช่น PDA-01</p></div></div>}

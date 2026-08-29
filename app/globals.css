@@ -315,6 +315,16 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .global-message { display: flex; align-items: center; gap: 9px; max-width: 1360px; margin: 16px auto -2px; padding: 11px 15px; border: 1px solid #f1d6ae; border-radius: 10px; background: #fff8eb; color: #8b641f; }
 .global-message > span { display: grid; place-items: center; flex: none; width: 19px; height: 19px; border: 1px solid #d7ad69; border-radius: 50%; font-size: 11px; }
 .global-message p { margin: 0; font-size: 11px; font-weight: 700; }
+.toast-notification { position: fixed; z-index: 30; top: 22px; right: 22px; display: flex; align-items: center; gap: 11px; width: min(370px, calc(100vw - 44px)); padding: 14px 14px 14px 16px; border: 1px solid; border-radius: 14px; background: #fff; box-shadow: 0 18px 42px rgba(14, 38, 79, .2); animation: toast-in .22s ease-out; }
+.toast-notification.success { border-color: #a6dfc7; color: #146b50; }
+.toast-notification.error { border-color: #f1b8b8; color: #a33e3e; }
+.toast-notification > span { display: grid; place-items: center; flex: none; width: 25px; height: 25px; border-radius: 50%; font-size: 14px; font-weight: 900; }
+.toast-notification.success > span { background: #dff6eb; }
+.toast-notification.error > span { background: #ffebeb; }
+.toast-notification p { flex: 1; margin: 0; font-size: 12px; font-weight: 800; line-height: 1.45; }
+.toast-notification button { flex: none; padding: 1px 4px; border: 0; background: none; color: #8c9ab0; font-size: 22px; line-height: 1; }
+.toast-notification button:hover { color: #213451; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 
 /* Scanner and transaction modal */
 .modal-overlay, .scanner-overlay { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(7, 18, 39, .72); backdrop-filter: blur(5px); }
