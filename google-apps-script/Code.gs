@@ -1,5 +1,5 @@
 /** PDA CONTROL — Google Apps Script backend */
-const SPREADSHEET_ID = 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE';
+const SPREADSHEET_ID = '1u2Ywi5fqT1ApY9CMCCSiAYNkSCTBFs-QnEeXOKfp2LA';
 const DRIVE_FOLDER_NAME = 'PDA Control - Verification Photos';
 
 function initialize() {
