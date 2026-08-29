@@ -304,7 +304,17 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .device-table .device-icon { width: 32px; height: 32px; font-size: 16px; }
 .muted { color: #9daabd; }
 .scan-required { display: inline-flex; align-items: center; gap: 5px; color: var(--primary); font-size: 10px; font-weight: 800; white-space: nowrap; }
+.table-action-group { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.table-action { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #cbdafa; border-radius: 9px; background: #f4f7ff; color: var(--primary); font-size: 10px; font-weight: 800; white-space: nowrap; }
+.table-action:hover { border-color: #9ebbf9; background: #eaf1ff; }
+.table-action.in-use { border-color: #f1d6ae; background: #fff8eb; color: #ad650c; }
+.table-action.in-use:hover { background: #fff0d8; }
+.table-action span { font-size: 14px; }
+.table-action-group small { color: #98a7bb; font-size: 9px; }
 .signed-user { margin: 11px 0; padding: 11px; border-radius: 9px; background: var(--blue-soft); color: #3159a9; font-size: 12px; }
+.global-message { display: flex; align-items: center; gap: 9px; max-width: 1360px; margin: 16px auto -2px; padding: 11px 15px; border: 1px solid #f1d6ae; border-radius: 10px; background: #fff8eb; color: #8b641f; }
+.global-message > span { display: grid; place-items: center; flex: none; width: 19px; height: 19px; border: 1px solid #d7ad69; border-radius: 50%; font-size: 11px; }
+.global-message p { margin: 0; font-size: 11px; font-weight: 700; }
 
 /* Scanner and transaction modal */
 .modal-overlay, .scanner-overlay { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(7, 18, 39, .72); backdrop-filter: blur(5px); }
