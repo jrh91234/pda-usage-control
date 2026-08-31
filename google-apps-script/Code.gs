@@ -59,7 +59,7 @@ function doPost(e) {
 function doGet() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const devices = ss.getSheetByName('Devices').getDataRange().getValues().slice(1).map(row => ({ id: row[0], name: row[1], serial: row[2], status: row[3], holder: row[4] || undefined, since: row[3] === 'in-use' && row[5] ? Utilities.formatDate(new Date(row[5]), Session.getScriptTimeZone(), 'HH:mm') : undefined }));
-  const events = ss.getSheetByName('Transactions').getDataRange().getValues().slice(1).map(row => ({ id: row[0], at: new Date(row[1]).toISOString(), type: row[2], deviceId: row[3], user: row[4], note: row[5], photo: row[6] || undefined }));
+  const events = ss.getSheetByName('Transactions').getDataRange().getValues().slice(1).map(row => ({ id: row[0], at: new Date(row[1]).toISOString(), type: row[2], deviceId: row[3], user: row[4], note: row[5], photo: row[6] ? normalizePhotoUrl_(row[6]) : undefined }));
   const users = ss.getSheetByName('Users').getDataRange().getValues().slice(1).filter(row => row[0]).map(row => ({ username: row[0], fullName: row[1], role: row[2] || 'operator', status: row[3] || 'active' }));
   return ContentService.createTextOutput(JSON.stringify({ ok: true, devices, events, users })).setMimeType(ContentService.MimeType.JSON);
 }
@@ -81,5 +81,16 @@ function savePhoto_(dataUrl, name) {
   const extension = contentType.split('/')[1] || 'jpg';
   const safeName = String(name).replace(/[^a-zA-Z0-9._-]+/g, '_');
   const blob = Utilities.newBlob(Utilities.base64Decode(matches[2]), contentType, `${safeName}.${extension}`);
-  return getPhotoFolder_().createFile(blob).getUrl();
+  const file = getPhotoFolder_().createFile(blob);
+  try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (error) { console.log(`ตั้งค่าสิทธิ์รูปไม่สำเร็จ: ${error}`); }
+  return normalizePhotoUrl_(file.getId());
+}
+
+function normalizePhotoUrl_(value) {
+  const source = String(value || '');
+  const match = source.match(/\/d\/([^/]+)/) || source.match(/[?&]id=([^&]+)/);
+  if (!match) return source;
+  const fileId = match[1];
+  try { DriveApp.getFileById(fileId).setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (error) { console.log(`ตั้งค่าสิทธิ์รูปเดิมไม่สำเร็จ: ${error}`); }
+  return `https://drive.google.com/uc?export=view&id=${encodeURIComponent(fileId)}`;
 }
