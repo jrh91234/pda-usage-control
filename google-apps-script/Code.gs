@@ -30,12 +30,20 @@ function doPost(e) {
   if (payload.action === 'deleteDevice') return deleteDevice_(ss, payload.deviceId);
   if (payload.action === 'login') return loginUser_(ss, payload.username, payload.password);
   const event = payload.event;
-  if (!event || !payload.device || !event.deviceId) return jsonResponse_({ ok: false, message: 'ข้อมูลรายการไม่ครบถ้วน' });
+  if (!event || !payload.device || !event.id || !event.deviceId) return jsonResponse_({ ok: false, message: 'ข้อมูลรายการไม่ครบถ้วน' });
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     const devices = ss.getSheetByName('Devices'); const rows = devices.getDataRange().getValues(); const row = rows.findIndex((item, index) => index > 0 && String(item[0]).toUpperCase() === String(event.deviceId).toUpperCase()) + 1;
     if (row <= 1) return jsonResponse_({ ok: false, message: `ไม่พบอุปกรณ์ ${event.deviceId}` });
+    const transactionRows = ss.getSheetByName('Transactions').getDataRange().getValues();
+    const existingEvent = transactionRows.slice(1).find(item => String(item[0]).toLowerCase() === String(event.id).toLowerCase());
+    if (existingEvent) {
+      const existingDevice = rows.find((item, index) => index > 0 && String(item[0]).toUpperCase() === String(existingEvent[3]).toUpperCase());
+      if (existingDevice) {
+        return jsonResponse_({ ok: true, duplicate: true, device: { id: existingDevice[0], name: existingDevice[1], serial: existingDevice[2], status: existingDevice[3], holder: existingDevice[4] || undefined, since: existingDevice[3] === 'in-use' && existingDevice[5] ? Utilities.formatDate(new Date(existingDevice[5]), Session.getScriptTimeZone(), 'HH:mm') : undefined }, event: { id: existingEvent[0], deviceId: existingEvent[3], type: existingEvent[2], user: existingEvent[4], at: new Date(existingEvent[1]).toISOString(), photo: existingEvent[6] || undefined, note: existingEvent[5] || '' } });
+      }
+    }
     const currentStatus = String(rows[row - 1][3]).toLowerCase();
     const expectedStatus = event.type === 'checkout' ? 'in-use' : event.type === 'return' ? 'available' : '';
     if (!expectedStatus || String(payload.device.status).toLowerCase() !== expectedStatus) return jsonResponse_({ ok: false, message: 'สถานะรายการไม่ถูกต้อง' });

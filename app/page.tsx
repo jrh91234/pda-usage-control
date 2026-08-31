@@ -25,6 +25,12 @@ const users = ['somchai.p', 'nicha.k', 'ananda.s', 'pimchanok.r', 'thanawat.m'];
 const initialUsers: RegisteredUser[] = users.map((username, index) => ({ username, fullName: username.split('.')[0], role: index === 0 ? 'admin' : 'operator', status: 'active' }));
 const dataApiUrl = '/api/device-events';
 const THAILAND_TIME_ZONE = 'Asia/Bangkok';
+const DATA_REQUEST_TIMEOUT_MS = 30000;
+function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = DATA_REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => window.clearTimeout(timeout));
+}
 function formatTime(value: string) { return new Intl.DateTimeFormat('th-TH', { timeZone: THAILAND_TIME_ZONE, hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
 function formatDate(value: string) { return new Intl.DateTimeFormat('th-TH', { timeZone: THAILAND_TIME_ZONE, day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)); }
 function photoSource(value?: string) { if (!value) return undefined; const source = value.trim(); const match = source.match(/\/d\/([^/]+)/) || source.match(/[?&]id=([^&]+)/); const fileId = match?.[1] || (/^[A-Za-z0-9_-]{10,}$/.test(source) ? source : ''); return fileId ? `/api/device-photo?id=${encodeURIComponent(fileId)}` : source; }
@@ -212,7 +218,7 @@ export default function Home() {
     }).catch(() => setAuthStatus('signed-out'));
   }, []);
   useEffect(() => {
-    fetch(dataApiUrl, { cache: 'no-store' }).then(async (response) => {
+    fetchWithTimeout(dataApiUrl, { cache: 'no-store' }).then(async (response) => {
       if (!response.ok) throw new Error('load-failed');
       return response.json();
     }).then((data) => {
@@ -328,13 +334,13 @@ export default function Home() {
     const nextDevice: Device = mode === 'checkout' ? { ...activeDevice, status: 'in-use', holder: username, since: formatTime(now) } : { ...activeDevice, status: 'available', holder: undefined, since: undefined };
     setIsSubmitting(true); setMessage('กำลังบันทึกข้อมูล…');
     try {
-      const response = await fetch(dataApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: mode, device: nextDevice, event }) });
+      const response = await fetchWithTimeout(dataApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: mode, device: nextDevice, event }) });
       const data = await response.json().catch(() => ({})) as { ok?: boolean; message?: string; device?: Device; event?: UsageEvent };
       if (!response.ok || !data.ok) throw new Error(data.message || 'save-failed');
       let savedDevice = data.device;
       let savedEvent = data.event;
       if (!savedDevice || !savedEvent) {
-        const verifyResponse = await fetch(dataApiUrl, { cache: 'no-store' });
+        const verifyResponse = await fetchWithTimeout(dataApiUrl, { cache: 'no-store' });
         if (!verifyResponse.ok) throw new Error('verify-failed');
         const verifyData = await verifyResponse.json() as { devices?: Device[]; events?: UsageEvent[] };
         savedDevice = verifyData.devices?.find((item) => item.id.toUpperCase() === nextDevice.id.toUpperCase() && item.status === nextDevice.status && (mode !== 'checkout' || item.holder === username));
@@ -345,14 +351,16 @@ export default function Home() {
       setEvents((items) => [savedEvent as UsageEvent, ...items]);
       showNotification(mode === 'checkout' ? 'บันทึกการเบิกสำเร็จแล้ว' : 'บันทึกการคืนสำเร็จแล้ว');
       window.setTimeout(closeFlow, 700);
-    } catch {
-      const failureMessage = 'บันทึกไม่สำเร็จ ข้อมูลยังไม่ถูกเปลี่ยน กรุณาลองใหม่อีกครั้ง';
+    } catch (error) {
+      const failureMessage = error instanceof Error && error.name === 'AbortError'
+        ? 'การบันทึกใช้เวลานานเกินไป ระบบหยุดรอแล้ว กรุณาตรวจสอบประวัติก่อนลองใหม่ เพื่อป้องกันการบันทึกซ้ำ'
+        : 'บันทึกไม่สำเร็จ ข้อมูลยังไม่ถูกเปลี่ยน กรุณาลองใหม่อีกครั้ง';
       setMessage(failureMessage); showNotification(failureMessage, 'error');
     } finally { setIsSubmitting(false); }
   }
   async function sendAdminAction(payload: Record<string, unknown>, successMessage: string, failureMessage: string) {
     try {
-      const response = await fetch(dataApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const response = await fetchWithTimeout(dataApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const data = await response.json().catch(() => ({})) as { ok?: boolean; message?: string };
       if (!response.ok || data.ok !== true) throw new Error(data.message || 'save-failed');
       showNotification(successMessage);
