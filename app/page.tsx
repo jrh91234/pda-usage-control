@@ -26,7 +26,7 @@ const dataApiUrl = '/api/device-events';
 const THAILAND_TIME_ZONE = 'Asia/Bangkok';
 function formatTime(value: string) { return new Intl.DateTimeFormat('th-TH', { timeZone: THAILAND_TIME_ZONE, hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
 function formatDate(value: string) { return new Intl.DateTimeFormat('th-TH', { timeZone: THAILAND_TIME_ZONE, day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)); }
-function photoSource(value?: string) { if (!value) return undefined; const match = value.match(/\/d\/([^/]+)/) || value.match(/[?&]id=([^&]+)/); return match ? `/api/device-photo?id=${encodeURIComponent(match[1])}` : value; }
+function photoSource(value?: string) { if (!value) return undefined; const source = value.trim(); const match = source.match(/\/d\/([^/]+)/) || source.match(/[?&]id=([^&]+)/); const fileId = match?.[1] || (/^[A-Za-z0-9_-]{10,}$/.test(source) ? source : ''); return fileId ? `/api/device-photo?id=${encodeURIComponent(fileId)}` : source; }
 function normalizeQrValue(value: string) { return value.normalize('NFKC').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
 function qrTextVariants(raw: string) {
   const variants = new Set<string>();
