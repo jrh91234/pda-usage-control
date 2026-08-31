@@ -1,6 +1,7 @@
 'use client';
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import QRCode from 'qrcode';
 
 type DeviceStatus = 'available' | 'in-use';
@@ -83,6 +84,44 @@ function matchDeviceFromQr(raw: string, devices: Device[]) {
   if (!winner || (matches[1] && matches[1].score === winner.score)) return null;
   return { device: winner.device, guessed: !winner.exact };
 }
+type NativeQrDetector = { detect: (source: HTMLVideoElement | HTMLCanvasElement) => Promise<Array<{ rawValue?: string }>> };
+type NativeQrDetectorConstructor = new (options?: { formats?: string[] }) => NativeQrDetector;
+type ScanVariant = { crop: number; square: boolean; maxDimension: number; contrast?: number };
+function createNativeQrDetector() {
+  const Detector = (window as Window & { BarcodeDetector?: NativeQrDetectorConstructor }).BarcodeDetector;
+  if (!Detector) return undefined;
+  try { return new Detector({ formats: ['qr_code'] }); } catch { return undefined; }
+}
+function drawScanVariant(video: HTMLVideoElement, canvas: HTMLCanvasElement, variant: ScanVariant) {
+  const videoWidth = video.videoWidth;
+  const videoHeight = video.videoHeight;
+  const shortSide = Math.min(videoWidth, videoHeight);
+  const sourceWidth = variant.square ? shortSide * variant.crop : videoWidth * variant.crop;
+  const sourceHeight = variant.square ? shortSide * variant.crop : videoHeight * variant.crop;
+  const sourceX = (videoWidth - sourceWidth) / 2;
+  const sourceY = (videoHeight - sourceHeight) / 2;
+  const scale = Math.min(1.6, variant.maxDimension / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: Boolean(variant.contrast) });
+  if (!context) throw new Error('scanner-canvas-not-ready');
+  context.imageSmoothingEnabled = scale <= 1;
+  context.filter = 'none';
+  context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, width, height);
+  if (variant.contrast) {
+    const image = context.getImageData(0, 0, width, height);
+    for (let index = 0; index < image.data.length; index += 4) {
+      const gray = image.data[index] * 0.299 + image.data[index + 1] * 0.587 + image.data[index + 2] * 0.114;
+      const adjusted = Math.max(0, Math.min(255, (gray - 128) * variant.contrast + 128));
+      image.data[index] = adjusted;
+      image.data[index + 1] = adjusted;
+      image.data[index + 2] = adjusted;
+    }
+    context.putImageData(image, 0, 0);
+  }
+}
 function bangkokDateInputValue(value: string) {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: THAILAND_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value));
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || '';
@@ -144,25 +183,85 @@ export default function Home() {
     if (!navigator.mediaDevices?.getUserMedia) { setMessage('เบราว์เซอร์นี้ไม่รองรับกล้อง — กรุณาเปิดเว็บด้วยอุปกรณ์ที่ใช้กล้องได้'); return; }
     setIsScanning(true);
     try {
-      const { BrowserQRCodeReader } = await import('@zxing/browser');
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       if (!videoRef.current) throw new Error('scanner-preview-not-ready');
-      const reader = new BrowserQRCodeReader();
-      scannerControls.current = await reader.decodeFromConstraints({ video: { facingMode: { ideal: 'environment' } } }, videoRef.current, (result) => {
-        if (!result) return;
-        const scannedText = result.getText().trim();
+      const { BrowserQRCodeReader } = await import('@zxing/browser');
+      const hints = new Map<DecodeHintType, unknown>([
+        [DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]],
+        [DecodeHintType.TRY_HARDER, true],
+      ]);
+      const reader = new BrowserQRCodeReader(hints, { delayBetweenScanAttempts: 120, delayBetweenScanSuccess: 500 });
+      const video = videoRef.current;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920, min: 640 },
+          height: { ideal: 1080, min: 480 },
+          frameRate: { ideal: 30, max: 30 },
+        },
+      });
+      video.srcObject = stream;
+      await video.play();
+      const track = stream.getVideoTracks()[0];
+      const capabilities = track?.getCapabilities() as MediaTrackCapabilities & { focusMode?: string[] };
+      if (track && capabilities.focusMode?.includes('continuous')) {
+        await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] } as MediaTrackConstraints).catch(() => undefined);
+      }
+      const nativeDetector = createNativeQrDetector();
+      const canvas = document.createElement('canvas');
+      const variants: ScanVariant[] = [
+        { crop: 1, square: false, maxDimension: 1280 },
+        { crop: 0.94, square: true, maxDimension: 1280 },
+        { crop: 0.78, square: true, maxDimension: 1280 },
+        { crop: 0.92, square: false, maxDimension: 1400, contrast: 1.45 },
+        { crop: 0.82, square: true, maxDimension: 1280, contrast: 1.8 },
+      ];
+      let stopped = false;
+      let scanning = false;
+      const handleDecodedText = (value: string) => {
+        const scannedText = value.trim();
+        if (!scannedText || stopped) return false;
         const matched = matchDeviceFromQr(scannedText, devices);
-        if (!matched) { setMessage(`อ่าน QR ได้เป็น “${scannedText}” แต่ยังจับคู่เครื่องไม่ได้ — ตรวจสอบ QR แล้วลองสแกนใหม่`); return; }
+        if (!matched) {
+          setMessage(`อ่าน QR ได้เป็น “${scannedText}” แต่ยังจับคู่เครื่องไม่ได้ — ลองขยับให้ QR อยู่กลางภาพแล้วสแกนใหม่`);
+          return false;
+        }
         stopScanner();
         openFlow(matched.device);
         if (matched.guessed) setMessage(`อ่าน QR ได้ไม่ครบ ระบบจับคู่เป็น ${matched.device.id} ให้แล้ว`);
-      });
+        return true;
+      };
+      const scanFrame = async () => {
+        if (stopped || scanning || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth) return;
+        scanning = true;
+        try {
+          if (nativeDetector) {
+            try {
+              const results = await nativeDetector.detect(video);
+              const nativeText = results.map((result) => result.rawValue?.trim()).find(Boolean);
+              if (nativeText && handleDecodedText(nativeText)) return;
+            } catch { /* Fall back to the enhanced ZXing passes below. */ }
+          }
+          for (const variant of variants) {
+            if (stopped) return;
+            drawScanVariant(video, canvas, variant);
+            try {
+              const result = reader.decodeFromCanvas(canvas);
+              if (handleDecodedText(result.getText())) return;
+            } catch { /* Try the next crop/enhancement. */ }
+          }
+        } finally { scanning = false; }
+      };
+      scannerControls.current = { stop: () => { stopped = true; } };
+      scanTimer.current = window.setInterval(() => { void scanFrame(); }, 180);
+      void scanFrame();
     } catch {
       stopScanner();
       setMessage('ไม่สามารถเปิดกล้องได้ โปรดอนุญาตการใช้กล้อง แล้วลองสแกน QR อีกครั้ง');
     }
   }
-  function stopScanner() { scannerControls.current?.stop(); scannerControls.current = undefined; if (scanTimer.current) clearInterval(scanTimer.current); const stream = videoRef.current?.srcObject as MediaStream | null; stream?.getTracks().forEach((track) => track.stop()); if (videoRef.current) videoRef.current.srcObject = null; setIsScanning(false); }
+  function stopScanner() { scannerControls.current?.stop(); scannerControls.current = undefined; if (scanTimer.current) { clearInterval(scanTimer.current); scanTimer.current = undefined; } const stream = videoRef.current?.srcObject as MediaStream | null; stream?.getTracks().forEach((track) => track.stop()); if (videoRef.current) videoRef.current.srcObject = null; setIsScanning(false); }
   async function submitFlow() {
     if (!activeDevice || !photo) { setMessage('กรุณาถ่ายหรือแนบรูปยืนยันก่อนบันทึก'); return; }
     const now = new Date().toISOString(); const event: UsageEvent = { id: crypto.randomUUID(), deviceId: activeDevice.id, type: mode, user: mode === 'return' ? activeDevice.holder || username : username, at: now, photo, note };
@@ -241,7 +340,7 @@ export default function Home() {
     {notification && <div className={`toast-notification ${notification.tone}`} role="status" aria-live="polite"><span>{notification.tone === 'success' ? '✓' : '!'}</span><p>{notification.text}</p><button type="button" aria-label="ปิดการแจ้งเตือน" onClick={() => setNotification(null)}>×</button></div>}
     {message && !activeDevice && !isScanning && <div className="global-message" role="status"><span>i</span><p>{message}</p></div>}
     {screen === 'devices' ? <><section className="stats"><article><span className="stat-icon green">✓</span><div><small>พร้อมใช้งาน</small><strong>{summary.available} <i>เครื่อง</i></strong></div></article><article><span className="stat-icon amber">↗</span><div><small>กำลังถูกใช้งาน</small><strong>{summary.inUse} <i>เครื่อง</i></strong></div></article><article><span className="stat-icon blue">◷</span><div><small>รายการวันนี้</small><strong>{events.length} <i>ครั้ง</i></strong></div></article></section><section className="content-head"><div><h2>รายการอุปกรณ์</h2><p>ต้องสแกน QR เท่านั้นจึงจะเปิดหน้าเบิกหรือคืนเครื่องได้</p></div><div className="legend"><span className="dot available" /> พร้อมใช้ <span className="dot used" /> กำลังใช้งาน</div></section><section className="device-table-wrap"><table className="device-table"><thead><tr><th>อุปกรณ์</th><th>หมายเลขเครื่อง</th><th>สถานะ</th><th>ผู้ใช้งานปัจจุบัน</th><th>เวลาเบิก</th><th>การทำงาน</th></tr></thead><tbody>{devices.map((device) => <tr key={device.id}><td><span className="table-device"><span className="device-icon">▣</span><span><strong>{device.name}</strong><small>{device.id}</small></span></span></td><td>{device.serial}</td><td><span className={`pill ${device.status}`}>{device.status === 'available' ? 'พร้อมใช้' : 'กำลังใช้'}</span></td><td>{device.holder || <span className="muted">—</span>}</td><td>{device.since ? `${device.since} น.` : <span className="muted">—</span>}</td><td><span className="table-action-group"><button className="table-action scan-only-action" type="button" onClick={() => startScanner()} aria-label={`สแกน QR เพื่อ${device.status === 'available' ? 'เบิก' : 'คืน'} ${device.id}`}>⌁ สแกน QR</button><small>ต้องสแกนก่อนดำเนินการ</small></span></td></tr>)}</tbody></table></section></> : screen === 'timeline' ? <Timeline events={sortedEvents} devices={devices} /> : authUser?.role === 'admin' ? <AdminPage users={registeredUsers} devices={devices} currentUsername={authUser.username} onRegister={registerUser} onUpdateUser={updateUser} onDeleteUser={deleteUser} onRegisterDevice={registerDevice} onUpdateDevice={updateDevice} onDeleteDevice={deleteDevice} /> : <AccessDenied />}
-    {isScanning && <div className="scanner-overlay"><div className="scanner"><button className="close" onClick={stopScanner}>×</button><p className="eyebrow">QR SCANNER</p><h2>เล็งกล้องไปที่ QR ของเครื่อง</h2><div className="video-wrap"><video ref={videoRef} muted playsInline /><span className="scan-frame" /></div><p>รองรับรหัส เช่น PDA-01</p></div></div>}
+    {isScanning && <div className="scanner-overlay"><div className="scanner"><button className="close" onClick={stopScanner}>×</button><p className="eyebrow">QR SCANNER</p><h2>เล็งกล้องไปที่ QR ของเครื่อง</h2><div className="video-wrap"><video ref={videoRef} muted playsInline /><span className="scan-frame" /></div><p className="scanner-help">ระบบจะลองอ่านภาพเต็ม ครอป ขยาย และเพิ่มคอนทราสต์อัตโนมัติ — วาง QR ให้อยู่ในภาพมากที่สุด</p></div></div>}
     {activeDevice && <div className="modal-overlay"><section className="flow-modal"><button className="close" onClick={closeFlow}>×</button><p className="eyebrow">{mode === 'checkout' ? 'CHECK OUT DEVICE' : 'RETURN DEVICE'}</p><h2>{mode === 'checkout' ? 'ยืนยันการเบิกเครื่อง' : 'ยืนยันการคืนเครื่อง'}</h2><div className="selected-device"><span>▣</span><div><strong>{activeDevice.name}</strong><small>{activeDevice.id} · {activeDevice.serial}</small></div></div>{mode === 'checkout' ? <p className="signed-user">ผู้ใช้งานที่ล็อกอิน: <b>{signedInUser}</b></p> : <p className="returning">ผู้เบิก: <b>{activeDevice.holder}</b></p>}<label>พื้นที่/หมายเหตุ <input value={note} placeholder="เช่น Line A, Packing" onChange={(event) => setNote(event.target.value)} /></label><div className={`photo-box ${photo ? 'has-photo' : ''}`}>{photo ? <img src={photo} alt="ภาพยืนยัน" /> : <><span>◉</span><strong>ถ่ายรูปยืนยัน</strong><small>กรุณาถ่ายภาพเครื่องก่อนบันทึก</small></>}<input type="file" accept="image/*" capture="environment" onChange={attachPhoto} /></div>{message && <p className="form-message">{message}</p>}<button className="primary-action" disabled={isSubmitting} aria-busy={isSubmitting} onClick={submitFlow}>{isSubmitting && <span className="submit-spinner" aria-hidden="true" />}{isSubmitting ? 'กำลังบันทึก…' : mode === 'checkout' ? 'ยืนยันการเบิก' : 'ยืนยันการคืน'} {!isSubmitting && <span>→</span>}</button></section></div>}
   </main>;
 }
