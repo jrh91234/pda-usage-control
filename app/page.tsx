@@ -205,6 +205,7 @@ export default function Home() {
   const scanTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const scannerControls = useRef<{ stop: () => void } | undefined>(undefined);
   const notificationTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pendingEventId = useRef<string | undefined>(undefined);
   function showNotification(text: string, tone: Notification['tone'] = 'success') {
     setNotification({ text, tone });
     if (notificationTimer.current) window.clearTimeout(notificationTimer.current);
@@ -230,9 +231,9 @@ export default function Home() {
   const summary = useMemo(() => ({ available: devices.filter((item) => item.status === 'available').length, inUse: devices.filter((item) => item.status === 'in-use').length }), [devices]);
   const sortedEvents = useMemo(() => [...events].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()), [events]);
   function openFlow(device: Device) {
-    setActiveDevice(device); setMode(device.status === 'available' ? 'checkout' : 'return'); setPhoto(undefined); setNote(''); setMessage('');
+    pendingEventId.current = undefined; setActiveDevice(device); setMode(device.status === 'available' ? 'checkout' : 'return'); setPhoto(undefined); setNote(''); setMessage('');
   }
-  function closeFlow() { stopScanner(); setActiveDevice(null); setIsSubmitting(false); }
+  function closeFlow() { stopScanner(); pendingEventId.current = undefined; setActiveDevice(null); setIsSubmitting(false); }
   async function attachPhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -330,7 +331,8 @@ export default function Home() {
   async function submitFlow() {
     if (isPreparingPhoto) return;
     if (!activeDevice || !photo) { setMessage('กรุณาถ่ายหรือแนบรูปยืนยันก่อนบันทึก'); return; }
-    const now = new Date().toISOString(); const event: UsageEvent = { id: crypto.randomUUID(), deviceId: activeDevice.id, type: mode, user: mode === 'return' ? activeDevice.holder || username : username, at: now, photo, note };
+    const now = new Date().toISOString(); const event: UsageEvent = { id: pendingEventId.current || crypto.randomUUID(), deviceId: activeDevice.id, type: mode, user: mode === 'return' ? activeDevice.holder || username : username, at: now, photo, note };
+    pendingEventId.current = event.id;
     const nextDevice: Device = mode === 'checkout' ? { ...activeDevice, status: 'in-use', holder: username, since: formatTime(now) } : { ...activeDevice, status: 'available', holder: undefined, since: undefined };
     setIsSubmitting(true); setMessage('กำลังบันทึกข้อมูล…');
     try {
