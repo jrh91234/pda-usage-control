@@ -385,6 +385,15 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .event h3 em { margin-left: 6px; color: #63758f; font-size: 11px; font-style: normal; font-weight: 400; }
 .event p { margin: 0; color: #8392a7; font-size: 10px; }
 .event img { width: 50px; height: 50px; border-radius: 8px; object-fit: cover; }
+.photo-thumb { position: relative; width: 50px; height: 50px; padding: 0; overflow: hidden; border: 0; border-radius: 8px; background: #e9eff8; cursor: zoom-in; }
+.photo-thumb img { display: block; }
+.photo-thumb span { position: absolute; right: 3px; bottom: 3px; padding: 2px 4px; border-radius: 4px; background: rgba(7, 18, 39, .72); color: #fff; font-size: 8px; font-weight: 800; opacity: 0; transition: opacity .18s; }
+.photo-thumb:hover span, .photo-thumb:focus-visible span { opacity: 1; }
+.photo-lightbox { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(4, 13, 31, .84); backdrop-filter: blur(6px); }
+.photo-lightbox-card { position: relative; display: grid; place-items: center; width: min(920px, 100%); max-height: 92vh; padding: 14px; border: 1px solid rgba(255, 255, 255, .2); border-radius: 16px; background: #08152c; box-shadow: 0 30px 90px rgba(0, 0, 0, .38); }
+.photo-lightbox-card img { display: block; max-width: 100%; max-height: calc(92vh - 28px); border-radius: 9px; object-fit: contain; }
+.photo-lightbox-close { position: absolute; z-index: 1; top: 8px; right: 10px; width: 34px; height: 34px; border: 1px solid rgba(255, 255, 255, .35); border-radius: 50%; background: rgba(7, 18, 39, .8); color: #fff; font-size: 24px; line-height: 1; }
+.photo-lightbox-close:hover { background: #1d3764; }
 .empty-state { margin-top: 20px; padding: 34px 20px; border: 1px dashed #c6d7f2; border-radius: 14px; background: #f8faff; color: #70809a; text-align: center; font-size: 12px; }
 
 /* Administration */
@@ -465,7 +474,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   .event { grid-template-columns: 55px 32px 1fr; gap: 9px; }
   .event:not(:last-child)::after { left: 71px; }
   .event time { font-size: 11px; }
-  .event img { display: none; }
+  .event > img { display: none; }
   .admin-layout { grid-template-columns: 1fr; }
   .admin-heading { align-items: start; flex-direction: column; gap: 15px; }
   .user-row { flex-wrap: wrap; }
@@ -489,6 +498,8 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   .device-card h3 { font-size: 12px; }
   .serial { font-size: 9px; }
   .flow-modal, .scanner { padding: 25px 20px; }
+  .photo-lightbox { padding: 14px; }
+  .photo-lightbox-card { padding: 8px; }
   .return-qr-check { align-items: stretch; flex-direction: column; }
   .return-qr-check .secondary-action { width: 100%; }
   .history-controls { grid-template-columns: 1fr; }

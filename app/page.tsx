@@ -15,17 +15,79 @@ const initialDevices: Device[] = Array.from({ length: 11 }, (_, index) => {
 });
 
 const initialEvents: UsageEvent[] = [
-  { id: 'e1', deviceId: 'PDA-02', type: 'checkout', user: 'somchai.p', at: '2026-08-27T08:14:00', note: 'Line A' },
-  { id: 'e2', deviceId: 'PDA-05', type: 'checkout', user: 'nicha.k', at: '2026-08-27T09:02:00', note: 'Packing' },
-  { id: 'e3', deviceId: 'PDA-08', type: 'checkout', user: 'ananda.s', at: '2026-08-27T10:36:00', note: 'Warehouse' },
-  { id: 'e4', deviceId: 'PDA-01', type: 'return', user: 'pimchanok.r', at: '2026-08-27T11:20:00' },
+  { id: 'e1', deviceId: 'PDA-02', type: 'checkout', user: 'somchai.p', at: '2026-08-27T08:14:00+07:00', note: 'Line A' },
+  { id: 'e2', deviceId: 'PDA-05', type: 'checkout', user: 'nicha.k', at: '2026-08-27T09:02:00+07:00', note: 'Packing' },
+  { id: 'e3', deviceId: 'PDA-08', type: 'checkout', user: 'ananda.s', at: '2026-08-27T10:36:00+07:00', note: 'Warehouse' },
+  { id: 'e4', deviceId: 'PDA-01', type: 'return', user: 'pimchanok.r', at: '2026-08-27T11:20:00+07:00' },
 ];
 const users = ['somchai.p', 'nicha.k', 'ananda.s', 'pimchanok.r', 'thanawat.m'];
 const initialUsers: RegisteredUser[] = users.map((username, index) => ({ username, fullName: username.split('.')[0], role: index === 0 ? 'admin' : 'operator', status: 'active' }));
 const dataApiUrl = '/api/device-events';
-function formatTime(value: string) { return new Intl.DateTimeFormat('th-TH', { hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
-function formatDate(value: string) { return new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)); }
+const THAILAND_TIME_ZONE = 'Asia/Bangkok';
+function formatTime(value: string) { return new Intl.DateTimeFormat('th-TH', { timeZone: THAILAND_TIME_ZONE, hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
+function formatDate(value: string) { return new Intl.DateTimeFormat('th-TH', { timeZone: THAILAND_TIME_ZONE, day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)); }
 function photoSource(value?: string) { if (!value) return undefined; const match = value.match(/\/d\/([^/]+)/) || value.match(/[?&]id=([^&]+)/); return match ? `/api/device-photo?id=${encodeURIComponent(match[1])}` : value; }
+function normalizeQrValue(value: string) { return value.normalize('NFKC').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+function qrTextVariants(raw: string) {
+  const variants = new Set<string>();
+  const add = (value: unknown) => { if (typeof value === 'string' && value.trim()) variants.add(value.trim()); };
+  add(raw);
+  try { add(decodeURIComponent(raw)); } catch { /* QR text may not be URL encoded. */ }
+  try {
+    const url = new URL(raw);
+    add(url.pathname);
+    url.searchParams.forEach((value) => add(value));
+  } catch { /* Most device QR codes are plain text rather than URLs. */ }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const addJson = (value: unknown, depth: number) => {
+      if (depth > 2) return;
+      if (typeof value === 'string') add(value);
+      else if (Array.isArray(value)) value.forEach((item) => addJson(item, depth + 1));
+      else if (value && typeof value === 'object') Object.values(value).forEach((item) => addJson(item, depth + 1));
+    };
+    addJson(parsed, 0);
+  } catch { /* QR text may not be JSON. */ }
+  return [...variants].map(normalizeQrValue).filter(Boolean);
+}
+function editDistance(left: string, right: string) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    const current = [row];
+    for (let column = 1; column <= right.length; column += 1) {
+      current[column] = Math.min(current[column - 1] + 1, previous[column] + 1, previous[column - 1] + (left[row - 1] === right[column - 1] ? 0 : 1));
+    }
+    for (let column = 0; column <= right.length; column += 1) previous[column] = current[column];
+  }
+  return previous[right.length];
+}
+function matchDeviceFromQr(raw: string, devices: Device[]) {
+  const variants = qrTextVariants(raw);
+  const matches = devices.map((device) => {
+    const id = normalizeQrValue(device.id);
+    let best = { score: 0, exact: false };
+    variants.forEach((value) => {
+      if (value === id) best = best.score >= 1000 ? best : { score: 1000, exact: true };
+      else if (value.includes(id)) best = best.score >= 900 ? best : { score: 900, exact: false };
+      else if (value.length >= 3 && id.includes(value)) best = best.score >= 300 + value.length ? best : { score: 300 + value.length, exact: false };
+      else {
+        const rawDigits = value.match(/\d+/g)?.join('');
+        const idDigits = id.match(/\d+/g)?.join('');
+        if (rawDigits && rawDigits.length >= 2 && rawDigits === idDigits) best = best.score >= 500 + rawDigits.length ? best : { score: 500 + rawDigits.length, exact: false };
+        else if (value.length >= 3 && Math.min(value.length, id.length) >= 3 && editDistance(value, id) <= 1) best = best.score >= 200 ? best : { score: 200, exact: false };
+      }
+    });
+    return { device, ...best };
+  }).filter((match) => match.score > 0).sort((left, right) => right.score - left.score);
+  const winner = matches[0];
+  if (!winner || (matches[1] && matches[1].score === winner.score)) return null;
+  return { device: winner.device, guessed: !winner.exact };
+}
+function bangkokDateInputValue(value: string) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: THAILAND_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
 
 export default function Home() {
   const [devices, setDevices] = useState(initialDevices);
@@ -88,11 +150,12 @@ export default function Home() {
       const reader = new BrowserQRCodeReader();
       scannerControls.current = await reader.decodeFromConstraints({ video: { facingMode: { ideal: 'environment' } } }, videoRef.current, (result) => {
         if (!result) return;
-        const scannedId = result.getText().trim().toUpperCase();
-        const matched = devices.find((device) => device.id.toUpperCase() === scannedId);
-        if (!matched) { setMessage(`ไม่พบอุปกรณ์รหัส ${scannedId} — ตรวจสอบ QR แล้วลองสแกนใหม่`); return; }
+        const scannedText = result.getText().trim();
+        const matched = matchDeviceFromQr(scannedText, devices);
+        if (!matched) { setMessage(`อ่าน QR ได้เป็น “${scannedText}” แต่ยังจับคู่เครื่องไม่ได้ — ตรวจสอบ QR แล้วลองสแกนใหม่`); return; }
         stopScanner();
-        openFlow(matched);
+        openFlow(matched.device);
+        if (matched.guessed) setMessage(`อ่าน QR ได้ไม่ครบ ระบบจับคู่เป็น ${matched.device.id} ให้แล้ว`);
       });
     } catch {
       stopScanner();
@@ -172,7 +235,7 @@ export default function Home() {
   if (authStatus === 'loading') return <LoadingScreen />;
   if (authStatus === 'signed-out') return <LoginPage onLogin={login} />;
   return <main>
-    <section className="topbar"><div className="brand"><span className="brand-mark">P</span><span><strong>PDA CONTROL</strong><small>Factory device custody</small></span></div><div className="today">{formatDate('2026-08-27T12:00:00')}</div><div className="profile"><span className="avatar">{signedInUser.slice(0, 2).toUpperCase()}</span><span>{signedInUser}</span><button onClick={logout} title="ออกจากระบบ">ออกจากระบบ</button></div></section>
+    <section className="topbar"><div className="brand"><span className="brand-mark">P</span><span><strong>PDA CONTROL</strong><small>Factory device custody</small></span></div><div className="today">{formatDate(new Date().toISOString())}</div><div className="profile"><span className="avatar">{signedInUser.slice(0, 2).toUpperCase()}</span><span>{signedInUser}</span><button onClick={logout} title="ออกจากระบบ">ออกจากระบบ</button></div></section>
     <section className="hero"><div><p className="eyebrow">DEVICE OPERATIONS</p><h1>ควบคุมการใช้งาน PDA<br /><em>ให้ตรวจสอบได้ทุกครั้ง</em></h1><p className="hero-copy">ต้องสแกน QR ก่อนเริ่มเบิกหรือคืนเครื่อง พร้อมภาพยืนยันและประวัติที่ค้นหาได้</p></div><button className="scan-button" onClick={() => startScanner()}><span>⌁</span> สแกน QR เครื่อง</button></section>
     <nav className="tabs" aria-label="การนำทางหลัก"><button className={screen === 'devices' ? 'active' : ''} onClick={() => setScreen('devices')}>อุปกรณ์ <b>{devices.length}</b></button><button className={screen === 'timeline' ? 'active' : ''} onClick={() => setScreen('timeline')}>ประวัติการใช้งาน</button><button className={screen === 'admin' ? 'active' : ''} onClick={() => setScreen('admin')}>ตั้งค่าระบบ <b className="admin-badge">ADMIN</b></button></nav>
     {notification && <div className={`toast-notification ${notification.tone}`} role="status" aria-live="polite"><span>{notification.tone === 'success' ? '✓' : '!'}</span><p>{notification.text}</p><button type="button" aria-label="ปิดการแจ้งเตือน" onClick={() => setNotification(null)}>×</button></div>}
@@ -183,16 +246,30 @@ export default function Home() {
   </main>;
 }
 
-function toDateInputValue(value: string) { const date = new Date(value); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
-function formatDateInput(value: string) { if (!value) return ''; const [year, month, day] = value.split('-').map(Number); return new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(year, month - 1, day)); }
+function toDateInputValue(value: string) { return bangkokDateInputValue(value); }
+function formatDateInput(value: string) { if (!value) return ''; return new Intl.DateTimeFormat('th-TH', { timeZone: THAILAND_TIME_ZONE, day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${value}T00:00:00+07:00`)); }
 
 function Timeline({ events, devices }: { events: UsageEvent[]; devices: Device[] }) {
-  const [query, setQuery] = useState(''); const [fromDate, setFromDate] = useState(''); const [toDate, setToDate] = useState(''); const [deviceFilter, setDeviceFilter] = useState('all');
+  const [query, setQuery] = useState(''); const [fromDate, setFromDate] = useState(''); const [toDate, setToDate] = useState(''); const [deviceFilter, setDeviceFilter] = useState('all'); const [previewPhoto, setPreviewPhoto] = useState<{ src: string; alt: string } | null>(null);
+  useEffect(() => {
+    if (!previewPhoto) return;
+    function closeWithEscape(event: KeyboardEvent) { if (event.key === 'Escape') setPreviewPhoto(null); }
+    window.addEventListener('keydown', closeWithEscape);
+    return () => window.removeEventListener('keydown', closeWithEscape);
+  }, [previewPhoto]);
   const invalidRange = Boolean(fromDate && toDate && fromDate > toDate);
   const filtered = invalidRange ? [] : events.filter((item) => { const eventDate = toDateInputValue(item.at); return (deviceFilter === 'all' || item.deviceId === deviceFilter) && (!fromDate || eventDate >= fromDate) && (!toDate || eventDate <= toDate) && `${item.deviceId} ${item.user}`.toLowerCase().includes(query.toLowerCase()); });
   const rangeLabel = fromDate && toDate && fromDate === toDate ? formatDateInput(fromDate) : fromDate || toDate ? `${fromDate ? formatDateInput(fromDate) : 'เริ่มต้น'} – ${toDate ? formatDateInput(toDate) : 'ปัจจุบัน'}` : 'ทุกช่วงเวลา';
   function clearFilters() { setQuery(''); setFromDate(''); setToDate(''); setDeviceFilter('all'); }
-  return <section className="timeline-page"><section className="history-filter"><div><p className="eyebrow">USAGE HISTORY</p><h2>ประวัติการเบิก–คืน</h2></div><input aria-label="ค้นหาประวัติ" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหา PDA หรือชื่อผู้ใช้" /></section><div className="history-controls"><label>ตั้งแต่<input aria-label="วันที่เริ่มต้น" type="date" value={fromDate} max={toDate || undefined} onChange={(event) => setFromDate(event.target.value)} /></label><label>ถึง<input aria-label="วันที่สิ้นสุด" type="date" min={fromDate || undefined} value={toDate} onChange={(event) => setToDate(event.target.value)} /></label><label>อุปกรณ์<select aria-label="เลือกอุปกรณ์" value={deviceFilter} onChange={(event) => setDeviceFilter(event.target.value)}><option value="all">ทุกเครื่อง</option>{devices.map((device) => <option key={device.id} value={device.id}>{device.id} · {device.name}</option>)}</select></label><button className="clear-filters" type="button" onClick={clearFilters}>ล้างตัวกรอง</button></div>{invalidRange && <p className="filter-message">วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด</p>}<div className="date-bar"><strong>{rangeLabel}</strong><span>{filtered.length} รายการ</span></div><div className="timeline">{filtered.map((event) => <article className="event" key={event.id}><time>{formatTime(event.at)}<small>{formatDate(event.at)}</small></time><span className={`event-dot ${event.type}`}>{event.type === 'checkout' ? '↗' : '↙'}</span><div><span className={`type-tag ${event.type}`}>{event.type === 'checkout' ? 'เบิกเครื่อง' : 'คืนเครื่อง'}</span><h3>{event.deviceId} <em>{event.type === 'checkout' ? 'ถูกเบิกโดย' : 'ถูกคืนโดย'} {event.user}</em></h3><p>{event.note || 'ไม่มีหมายเหตุ'} · มีรูปยืนยัน</p></div>{event.photo && <img src={photoSource(event.photo)} alt="ภาพยืนยัน" />}</article>)}</div>{!filtered.length && !invalidRange && <div className="empty-state">ไม่พบประวัติตามตัวกรองที่เลือก</div>}</section>;
+  return <section className="timeline-page"><section className="history-filter"><div><p className="eyebrow">USAGE HISTORY</p><h2>ประวัติการเบิก–คืน</h2></div><input aria-label="ค้นหาประวัติ" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหา PDA หรือชื่อผู้ใช้" /></section><div className="history-controls"><label>ตั้งแต่<input aria-label="วันที่เริ่มต้น" type="date" value={fromDate} max={toDate || undefined} onChange={(event) => setFromDate(event.target.value)} /></label><label>ถึง<input aria-label="วันที่สิ้นสุด" type="date" min={fromDate || undefined} value={toDate} onChange={(event) => setToDate(event.target.value)} /></label><label>อุปกรณ์<select aria-label="เลือกอุปกรณ์" value={deviceFilter} onChange={(event) => setDeviceFilter(event.target.value)}><option value="all">ทุกเครื่อง</option>{devices.map((device) => <option key={device.id} value={device.id}>{device.id} · {device.name}</option>)}</select></label><button className="clear-filters" type="button" onClick={clearFilters}>ล้างตัวกรอง</button></div>{invalidRange && <p className="filter-message">วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด</p>}<div className="date-bar"><strong>{rangeLabel}</strong><span>{filtered.length} รายการ</span></div><div className="timeline">{filtered.map((event) => <article className="event" key={event.id}><time>{formatTime(event.at)}<small>{formatDate(event.at)}</small></time><span className={`event-dot ${event.type}`}>{event.type === 'checkout' ? '↗' : '↙'}</span><div><span className={`type-tag ${event.type}`}>{event.type === 'checkout' ? 'เบิกเครื่อง' : 'คืนเครื่อง'}</span><h3>{event.deviceId} <em>{event.type === 'checkout' ? 'ถูกเบิกโดย' : 'ถูกคืนโดย'} {event.user}</em></h3><p>{event.note || 'ไม่มีหมายเหตุ'} · มีรูปยืนยัน</p></div>{event.photo && <PhotoThumbnail src={photoSource(event.photo) || event.photo} alt={`ภาพยืนยัน ${event.deviceId}`} onOpen={() => setPreviewPhoto({ src: photoSource(event.photo) || event.photo!, alt: `ภาพยืนยัน ${event.deviceId}` })} />}</article>)}</div>{previewPhoto && <PhotoLightbox photo={previewPhoto} onClose={() => setPreviewPhoto(null)} />}{!filtered.length && !invalidRange && <div className="empty-state">ไม่พบประวัติตามตัวกรองที่เลือก</div>}</section>;
+}
+
+function PhotoThumbnail({ src, alt, onOpen }: { src: string; alt: string; onOpen: () => void }) {
+  return <button className="photo-thumb" type="button" onClick={onOpen} aria-label={`${alt} — กดเพื่อขยาย`}><img src={src} alt={alt} /><span>ขยาย</span></button>;
+}
+
+function PhotoLightbox({ photo, onClose }: { photo: { src: string; alt: string }; onClose: () => void }) {
+  return <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label="ดูภาพยืนยันขนาดใหญ่" onClick={onClose}><div className="photo-lightbox-card"><button className="photo-lightbox-close" type="button" onClick={onClose} aria-label="ปิดภาพขนาดใหญ่">×</button><img src={photo.src} alt={photo.alt} onClick={(event) => event.stopPropagation()} /></div></div>;
 }
 
 type AdminPageProps = { users: RegisteredUser[]; devices: Device[]; currentUsername: string; onRegister: (user: RegisteredUser) => Promise<void>; onUpdateUser: (user: RegisteredUser, originalUsername: string) => Promise<void>; onDeleteUser: (username: string) => Promise<void>; onRegisterDevice: (device: Device) => Promise<void>; onUpdateDevice: (device: Device, originalId: string) => Promise<void>; onDeleteDevice: (deviceId: string) => Promise<void> };
