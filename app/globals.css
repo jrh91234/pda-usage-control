@@ -355,6 +355,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .photo-box small { margin-top: 4px; font-size: 10px; }
 .photo-box input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .photo-box img { width: 100%; height: 175px; object-fit: cover; }
+.photo-spinner { display: block; width: 24px; height: 24px; margin-bottom: 5px; border: 3px solid #d7e3f6; border-top-color: var(--primary); border-radius: 50%; animation: submit-spin .75s linear infinite; }
 .form-message, .filter-message { margin: 0 0 10px; color: var(--danger); font-size: 11px; font-weight: 700; }
 .video-wrap { position: relative; overflow: hidden; margin: 13px 0; border-radius: 12px; background: #08152c; aspect-ratio: 1.35; }
 .video-wrap video { width: 100%; height: 100%; object-fit: cover; }

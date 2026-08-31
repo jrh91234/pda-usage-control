@@ -127,6 +127,55 @@ function bangkokDateInputValue(value: string) {
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || '';
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
+const PHOTO_MAX_EDGE = 1600;
+const PHOTO_JPEG_QUALITY = 0.78;
+function readBlobAsDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('photo-read-failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+async function compressPhoto(file: File) {
+  let source: ImageBitmap | HTMLImageElement;
+  let cleanup: (() => void) | undefined;
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      source = bitmap;
+      cleanup = () => bitmap.close();
+    } catch { /* Fall back to an HTML image for browsers without bitmap orientation support. */ }
+  }
+  if (!source!) {
+    const objectUrl = URL.createObjectURL(file);
+    source = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('photo-decode-failed'));
+      image.src = objectUrl;
+    });
+    cleanup = () => URL.revokeObjectURL(objectUrl);
+  }
+  try {
+    const width = source instanceof HTMLImageElement ? source.naturalWidth : source.width;
+    const height = source instanceof HTMLImageElement ? source.naturalHeight : source.height;
+    if (!width || !height) return readBlobAsDataUrl(file);
+    if (file.size <= 700 * 1024 && Math.max(width, height) <= PHOTO_MAX_EDGE) return readBlobAsDataUrl(file);
+    const scale = Math.min(1, PHOTO_MAX_EDGE / Math.max(width, height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return readBlobAsDataUrl(file);
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(source, 0, 0, canvas.width, canvas.height);
+    const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', PHOTO_JPEG_QUALITY));
+    if (!compressed || compressed.size >= file.size) return readBlobAsDataUrl(file);
+    return readBlobAsDataUrl(compressed);
+  } finally { cleanup?.(); }
+}
 
 export default function Home() {
   const [devices, setDevices] = useState(initialDevices);
@@ -141,6 +190,7 @@ export default function Home() {
   const [note, setNote] = useState('');
   const [photo, setPhoto] = useState<string | undefined>();
   const [isScanning, setIsScanning] = useState(false);
+  const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [notification, setNotification] = useState<Notification | null>(null);
@@ -177,7 +227,16 @@ export default function Home() {
     setActiveDevice(device); setMode(device.status === 'available' ? 'checkout' : 'return'); setPhoto(undefined); setNote(''); setMessage('');
   }
   function closeFlow() { stopScanner(); setActiveDevice(null); setIsSubmitting(false); }
-  function attachPhoto(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => setPhoto(String(reader.result)); reader.readAsDataURL(file); }
+  async function attachPhoto(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setMessage('');
+    setIsPreparingPhoto(true);
+    try { setPhoto(await compressPhoto(file)); }
+    catch { try { setPhoto(await readBlobAsDataUrl(file)); } catch { setMessage('อ่านรูปไม่สำเร็จ กรุณาถ่ายหรือเลือกรูปใหม่'); } }
+    finally { setIsPreparingPhoto(false); }
+  }
   async function startScanner() {
     setMessage('');
     if (!navigator.mediaDevices?.getUserMedia) { setMessage('เบราว์เซอร์นี้ไม่รองรับกล้อง — กรุณาเปิดเว็บด้วยอุปกรณ์ที่ใช้กล้องได้'); return; }
@@ -263,6 +322,7 @@ export default function Home() {
   }
   function stopScanner() { scannerControls.current?.stop(); scannerControls.current = undefined; if (scanTimer.current) { clearInterval(scanTimer.current); scanTimer.current = undefined; } const stream = videoRef.current?.srcObject as MediaStream | null; stream?.getTracks().forEach((track) => track.stop()); if (videoRef.current) videoRef.current.srcObject = null; setIsScanning(false); }
   async function submitFlow() {
+    if (isPreparingPhoto) return;
     if (!activeDevice || !photo) { setMessage('กรุณาถ่ายหรือแนบรูปยืนยันก่อนบันทึก'); return; }
     const now = new Date().toISOString(); const event: UsageEvent = { id: crypto.randomUUID(), deviceId: activeDevice.id, type: mode, user: mode === 'return' ? activeDevice.holder || username : username, at: now, photo, note };
     const nextDevice: Device = mode === 'checkout' ? { ...activeDevice, status: 'in-use', holder: username, since: formatTime(now) } : { ...activeDevice, status: 'available', holder: undefined, since: undefined };
@@ -341,7 +401,7 @@ export default function Home() {
     {message && !activeDevice && !isScanning && <div className="global-message" role="status"><span>i</span><p>{message}</p></div>}
     {screen === 'devices' ? <><section className="stats"><article><span className="stat-icon green">✓</span><div><small>พร้อมใช้งาน</small><strong>{summary.available} <i>เครื่อง</i></strong></div></article><article><span className="stat-icon amber">↗</span><div><small>กำลังถูกใช้งาน</small><strong>{summary.inUse} <i>เครื่อง</i></strong></div></article><article><span className="stat-icon blue">◷</span><div><small>รายการวันนี้</small><strong>{events.length} <i>ครั้ง</i></strong></div></article></section><section className="content-head"><div><h2>รายการอุปกรณ์</h2><p>ต้องสแกน QR เท่านั้นจึงจะเปิดหน้าเบิกหรือคืนเครื่องได้</p></div><div className="legend"><span className="dot available" /> พร้อมใช้ <span className="dot used" /> กำลังใช้งาน</div></section><section className="device-table-wrap"><table className="device-table"><thead><tr><th>อุปกรณ์</th><th>หมายเลขเครื่อง</th><th>สถานะ</th><th>ผู้ใช้งานปัจจุบัน</th><th>เวลาเบิก</th><th>การทำงาน</th></tr></thead><tbody>{devices.map((device) => <tr key={device.id}><td><span className="table-device"><span className="device-icon">▣</span><span><strong>{device.name}</strong><small>{device.id}</small></span></span></td><td>{device.serial}</td><td><span className={`pill ${device.status}`}>{device.status === 'available' ? 'พร้อมใช้' : 'กำลังใช้'}</span></td><td>{device.holder || <span className="muted">—</span>}</td><td>{device.since ? `${device.since} น.` : <span className="muted">—</span>}</td><td><span className="table-action-group"><button className="table-action scan-only-action" type="button" onClick={() => startScanner()} aria-label={`สแกน QR เพื่อ${device.status === 'available' ? 'เบิก' : 'คืน'} ${device.id}`}>⌁ สแกน QR</button><small>ต้องสแกนก่อนดำเนินการ</small></span></td></tr>)}</tbody></table></section></> : screen === 'timeline' ? <Timeline events={sortedEvents} devices={devices} /> : authUser?.role === 'admin' ? <AdminPage users={registeredUsers} devices={devices} currentUsername={authUser.username} onRegister={registerUser} onUpdateUser={updateUser} onDeleteUser={deleteUser} onRegisterDevice={registerDevice} onUpdateDevice={updateDevice} onDeleteDevice={deleteDevice} /> : <AccessDenied />}
     {isScanning && <div className="scanner-overlay"><div className="scanner"><button className="close" onClick={stopScanner}>×</button><p className="eyebrow">QR SCANNER</p><h2>เล็งกล้องไปที่ QR ของเครื่อง</h2><div className="video-wrap"><video ref={videoRef} muted playsInline /><span className="scan-frame" /></div><p className="scanner-help">ระบบจะลองอ่านภาพเต็ม ครอป ขยาย และเพิ่มคอนทราสต์อัตโนมัติ — วาง QR ให้อยู่ในภาพมากที่สุด</p></div></div>}
-    {activeDevice && <div className="modal-overlay"><section className="flow-modal"><button className="close" onClick={closeFlow}>×</button><p className="eyebrow">{mode === 'checkout' ? 'CHECK OUT DEVICE' : 'RETURN DEVICE'}</p><h2>{mode === 'checkout' ? 'ยืนยันการเบิกเครื่อง' : 'ยืนยันการคืนเครื่อง'}</h2><div className="selected-device"><span>▣</span><div><strong>{activeDevice.name}</strong><small>{activeDevice.id} · {activeDevice.serial}</small></div></div>{mode === 'checkout' ? <p className="signed-user">ผู้ใช้งานที่ล็อกอิน: <b>{signedInUser}</b></p> : <p className="returning">ผู้เบิก: <b>{activeDevice.holder}</b></p>}<label>พื้นที่/หมายเหตุ <input value={note} placeholder="เช่น Line A, Packing" onChange={(event) => setNote(event.target.value)} /></label><div className={`photo-box ${photo ? 'has-photo' : ''}`}>{photo ? <img src={photo} alt="ภาพยืนยัน" /> : <><span>◉</span><strong>ถ่ายรูปยืนยัน</strong><small>กรุณาถ่ายภาพเครื่องก่อนบันทึก</small></>}<input type="file" accept="image/*" capture="environment" onChange={attachPhoto} /></div>{message && <p className="form-message">{message}</p>}<button className="primary-action" disabled={isSubmitting} aria-busy={isSubmitting} onClick={submitFlow}>{isSubmitting && <span className="submit-spinner" aria-hidden="true" />}{isSubmitting ? 'กำลังบันทึก…' : mode === 'checkout' ? 'ยืนยันการเบิก' : 'ยืนยันการคืน'} {!isSubmitting && <span>→</span>}</button></section></div>}
+    {activeDevice && <div className="modal-overlay"><section className="flow-modal"><button className="close" onClick={closeFlow}>×</button><p className="eyebrow">{mode === 'checkout' ? 'CHECK OUT DEVICE' : 'RETURN DEVICE'}</p><h2>{mode === 'checkout' ? 'ยืนยันการเบิกเครื่อง' : 'ยืนยันการคืนเครื่อง'}</h2><div className="selected-device"><span>▣</span><div><strong>{activeDevice.name}</strong><small>{activeDevice.id} · {activeDevice.serial}</small></div></div>{mode === 'checkout' ? <p className="signed-user">ผู้ใช้งานที่ล็อกอิน: <b>{signedInUser}</b></p> : <p className="returning">ผู้เบิก: <b>{activeDevice.holder}</b></p>}<label>พื้นที่/หมายเหตุ <input value={note} placeholder="เช่น Line A, Packing" onChange={(event) => setNote(event.target.value)} /></label><div className={`photo-box ${photo ? 'has-photo' : ''}`}>{photo ? <img src={photo} alt="ภาพยืนยัน" /> : isPreparingPhoto ? <><span className="photo-spinner" aria-hidden="true" /><strong>กำลังเตรียมรูป…</strong><small>กำลังย่อรูปเพื่อบันทึกให้เร็วขึ้น</small></> : <><span>◉</span><strong>ถ่ายรูปยืนยัน</strong><small>รูปจะถูกย่อและบีบอัดก่อนส่ง เพื่อบันทึกให้เร็วขึ้น</small></>}<input type="file" accept="image/*" capture="environment" disabled={isPreparingPhoto || isSubmitting} onChange={attachPhoto} /></div>{message && <p className="form-message">{message}</p>}<button className="primary-action" disabled={isSubmitting || isPreparingPhoto} aria-busy={isSubmitting || isPreparingPhoto} onClick={submitFlow}>{(isSubmitting || isPreparingPhoto) && <span className="submit-spinner" aria-hidden="true" />}{isPreparingPhoto ? 'กำลังเตรียมรูป…' : isSubmitting ? 'กำลังบันทึก…' : mode === 'checkout' ? 'ยืนยันการเบิก' : 'ยืนยันการคืน'} {!isSubmitting && !isPreparingPhoto && <span>→</span>}</button></section></div>}
   </main>;
 }
 
