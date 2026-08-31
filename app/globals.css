@@ -220,8 +220,11 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .scan-button:hover, .primary-action:hover { transform: translateY(-2px); box-shadow: 0 12px 25px rgba(34, 84, 216, .34); background: linear-gradient(140deg, #5a8cff, #1e4dca); }
 .scan-button:hover { background: #f2f7ff; }
 .scan-button span { margin-right: 5px; color: #2563eb; font-size: 23px; vertical-align: -2px; }
-.primary-action:disabled { cursor: wait; opacity: .65; }
+.primary-action:disabled { cursor: not-allowed; opacity: .65; }
+.primary-action:disabled[aria-busy="true"] { cursor: wait; }
 .primary-action span { float: right; font-size: 18px; }
+.primary-action .submit-spinner { display: inline-block; width: 15px; height: 15px; margin-right: 8px; border: 2px solid rgba(255, 255, 255, .42); border-top-color: #fff; border-radius: 50%; animation: submit-spin .75s linear infinite; vertical-align: -3px; float: none; font-size: inherit; }
+@keyframes submit-spin { to { transform: rotate(360deg); } }
 .tabs {
   display: flex;
   gap: 34px;
