@@ -8,7 +8,6 @@ type Device = { id: string; name: string; serial: string; status: DeviceStatus; 
 type UsageEvent = { id: string; deviceId: string; type: 'checkout' | 'return'; user: string; at: string; photo?: string; note?: string };
 type RegisteredUser = { username: string; fullName: string; role: 'admin' | 'operator'; status: 'active' | 'inactive'; password?: string };
 type Notification = { tone: 'success' | 'error'; text: string };
-type ScannerPurpose = 'select-device' | 'confirm-return';
 
 const initialDevices: Device[] = Array.from({ length: 11 }, (_, index) => {
   const number = String(index + 1).padStart(2, '0');
@@ -41,8 +40,6 @@ export default function Home() {
   const [note, setNote] = useState('');
   const [photo, setPhoto] = useState<string | undefined>();
   const [isScanning, setIsScanning] = useState(false);
-  const [scannerPurpose, setScannerPurpose] = useState<ScannerPurpose>('select-device');
-  const [returnQrVerified, setReturnQrVerified] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [notification, setNotification] = useState<Notification | null>(null);
@@ -75,16 +72,14 @@ export default function Home() {
   }, []);
   const summary = useMemo(() => ({ available: devices.filter((item) => item.status === 'available').length, inUse: devices.filter((item) => item.status === 'in-use').length }), [devices]);
   const sortedEvents = useMemo(() => [...events].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()), [events]);
-  function openFlow(device: Device, requestedMode?: 'checkout' | 'return') {
-    const nextMode = requestedMode ?? (device.status === 'available' ? 'checkout' : 'return');
-    setActiveDevice(device); setMode(nextMode); setReturnQrVerified(nextMode !== 'return'); setPhoto(undefined); setNote(''); setMessage('');
+  function openFlow(device: Device) {
+    setActiveDevice(device); setMode(device.status === 'available' ? 'checkout' : 'return'); setPhoto(undefined); setNote(''); setMessage('');
   }
-  function closeFlow() { stopScanner(); setActiveDevice(null); setReturnQrVerified(false); setIsSubmitting(false); }
+  function closeFlow() { stopScanner(); setActiveDevice(null); setIsSubmitting(false); }
   function attachPhoto(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => setPhoto(String(reader.result)); reader.readAsDataURL(file); }
-  async function startScanner(purpose: ScannerPurpose = 'select-device') {
+  async function startScanner() {
     setMessage('');
     if (!navigator.mediaDevices?.getUserMedia) { setMessage('เบราว์เซอร์นี้ไม่รองรับกล้อง — กรุณาเปิดเว็บด้วยอุปกรณ์ที่ใช้กล้องได้'); return; }
-    setScannerPurpose(purpose);
     setIsScanning(true);
     try {
       const { BrowserQRCodeReader } = await import('@zxing/browser');
@@ -95,17 +90,7 @@ export default function Home() {
         if (!result) return;
         const scannedId = result.getText().trim().toUpperCase();
         const matched = devices.find((device) => device.id.toUpperCase() === scannedId);
-        if (!matched) { setMessage(`ไม่พบอุปกรณ์รหัส ${scannedId} — ตรวจสอบ QR หรือเลือกจากรายการ`); return; }
-        if (purpose === 'confirm-return') {
-          if (!activeDevice || matched.id.toUpperCase() !== activeDevice.id.toUpperCase()) {
-            setMessage(`QR ไม่ตรงกับ ${activeDevice?.id || 'เครื่องที่กำลังคืน'} — กรุณาสแกน QR ของเครื่องเดิม`);
-            return;
-          }
-          stopScanner();
-          setReturnQrVerified(true);
-          setMessage('ตรวจสอบ QR เครื่องเดิมแล้ว สามารถยืนยันการคืนได้');
-          return;
-        }
+        if (!matched) { setMessage(`ไม่พบอุปกรณ์รหัส ${scannedId} — ตรวจสอบ QR แล้วลองสแกนใหม่`); return; }
         stopScanner();
         openFlow(matched);
       });
@@ -117,7 +102,6 @@ export default function Home() {
   function stopScanner() { scannerControls.current?.stop(); scannerControls.current = undefined; if (scanTimer.current) clearInterval(scanTimer.current); const stream = videoRef.current?.srcObject as MediaStream | null; stream?.getTracks().forEach((track) => track.stop()); if (videoRef.current) videoRef.current.srcObject = null; setIsScanning(false); }
   async function submitFlow() {
     if (!activeDevice || !photo) { setMessage('กรุณาถ่ายหรือแนบรูปยืนยันก่อนบันทึก'); return; }
-    if (mode === 'return' && !returnQrVerified) { setMessage('กรุณาสแกน QR ของเครื่องเดิมอีกครั้งเพื่อยืนยันการคืน'); return; }
     const now = new Date().toISOString(); const event: UsageEvent = { id: crypto.randomUUID(), deviceId: activeDevice.id, type: mode, user: mode === 'return' ? activeDevice.holder || username : username, at: now, photo, note };
     const nextDevice: Device = mode === 'checkout' ? { ...activeDevice, status: 'in-use', holder: username, since: formatTime(now) } : { ...activeDevice, status: 'available', holder: undefined, since: undefined };
     setIsSubmitting(true); setMessage('กำลังบันทึกข้อมูล…');
@@ -194,8 +178,8 @@ export default function Home() {
     {notification && <div className={`toast-notification ${notification.tone}`} role="status" aria-live="polite"><span>{notification.tone === 'success' ? '✓' : '!'}</span><p>{notification.text}</p><button type="button" aria-label="ปิดการแจ้งเตือน" onClick={() => setNotification(null)}>×</button></div>}
     {message && !activeDevice && !isScanning && <div className="global-message" role="status"><span>i</span><p>{message}</p></div>}
     {screen === 'devices' ? <><section className="stats"><article><span className="stat-icon green">✓</span><div><small>พร้อมใช้งาน</small><strong>{summary.available} <i>เครื่อง</i></strong></div></article><article><span className="stat-icon amber">↗</span><div><small>กำลังถูกใช้งาน</small><strong>{summary.inUse} <i>เครื่อง</i></strong></div></article><article><span className="stat-icon blue">◷</span><div><small>รายการวันนี้</small><strong>{events.length} <i>ครั้ง</i></strong></div></article></section><section className="content-head"><div><h2>รายการอุปกรณ์</h2><p>ต้องสแกน QR เท่านั้นจึงจะเปิดหน้าเบิกหรือคืนเครื่องได้</p></div><div className="legend"><span className="dot available" /> พร้อมใช้ <span className="dot used" /> กำลังใช้งาน</div></section><section className="device-table-wrap"><table className="device-table"><thead><tr><th>อุปกรณ์</th><th>หมายเลขเครื่อง</th><th>สถานะ</th><th>ผู้ใช้งานปัจจุบัน</th><th>เวลาเบิก</th><th>การทำงาน</th></tr></thead><tbody>{devices.map((device) => <tr key={device.id}><td><span className="table-device"><span className="device-icon">▣</span><span><strong>{device.name}</strong><small>{device.id}</small></span></span></td><td>{device.serial}</td><td><span className={`pill ${device.status}`}>{device.status === 'available' ? 'พร้อมใช้' : 'กำลังใช้'}</span></td><td>{device.holder || <span className="muted">—</span>}</td><td>{device.since ? `${device.since} น.` : <span className="muted">—</span>}</td><td><span className="table-action-group"><button className="table-action scan-only-action" type="button" onClick={() => startScanner()} aria-label={`สแกน QR เพื่อ${device.status === 'available' ? 'เบิก' : 'คืน'} ${device.id}`}>⌁ สแกน QR</button><small>ต้องสแกนก่อนดำเนินการ</small></span></td></tr>)}</tbody></table></section></> : screen === 'timeline' ? <Timeline events={sortedEvents} devices={devices} /> : authUser?.role === 'admin' ? <AdminPage users={registeredUsers} devices={devices} currentUsername={authUser.username} onRegister={registerUser} onUpdateUser={updateUser} onDeleteUser={deleteUser} onRegisterDevice={registerDevice} onUpdateDevice={updateDevice} onDeleteDevice={deleteDevice} /> : <AccessDenied />}
-    {isScanning && <div className="scanner-overlay"><div className="scanner"><button className="close" onClick={stopScanner}>×</button><p className="eyebrow">QR SCANNER</p><h2>{scannerPurpose === 'confirm-return' ? 'สแกน QR เครื่องเดิมเพื่อยืนยันการคืน' : 'เล็งกล้องไปที่ QR ของเครื่อง'}</h2><div className="video-wrap"><video ref={videoRef} muted playsInline /><span className="scan-frame" /></div><p>{scannerPurpose === 'confirm-return' ? `ต้องตรงกับ ${activeDevice?.id || 'เครื่องที่เลือก'}` : 'รองรับรหัส เช่น PDA-01'}</p></div></div>}
-    {activeDevice && <div className="modal-overlay"><section className="flow-modal"><button className="close" onClick={closeFlow}>×</button><p className="eyebrow">{mode === 'checkout' ? 'CHECK OUT DEVICE' : 'RETURN DEVICE'}</p><h2>{mode === 'checkout' ? 'ยืนยันการเบิกเครื่อง' : 'ยืนยันการคืนเครื่อง'}</h2><div className="selected-device"><span>▣</span><div><strong>{activeDevice.name}</strong><small>{activeDevice.id} · {activeDevice.serial}</small></div></div>{mode === 'checkout' ? <p className="signed-user">ผู้ใช้งานที่ล็อกอิน: <b>{signedInUser}</b></p> : <><p className="returning">ผู้เบิก: <b>{activeDevice.holder}</b></p><div className={`return-qr-check ${returnQrVerified ? 'verified' : ''}`}><div><strong>{returnQrVerified ? '✓ QR ตรงกับเครื่องที่จะคืน' : 'ต้องยืนยัน QR ก่อนคืนเครื่อง'}</strong><small>{returnQrVerified ? `ยืนยันแล้วว่าเป็น ${activeDevice.id}` : 'สแกน QR บนเครื่องนี้ซ้ำอีกครั้ง เพื่อป้องกันคืนผิดเครื่อง'}</small></div>{!returnQrVerified && <button className="secondary-action" type="button" onClick={() => startScanner('confirm-return')}>สแกน QR ยืนยัน</button>}</div></>}{mode === 'return' && returnQrVerified && <p className="verification-note">ระบบตรวจสอบ QR เครื่องเดิมเรียบร้อยแล้ว</p>}<label>พื้นที่/หมายเหตุ <input value={note} placeholder="เช่น Line A, Packing" onChange={(event) => setNote(event.target.value)} /></label><div className={`photo-box ${photo ? 'has-photo' : ''}`}>{photo ? <img src={photo} alt="ภาพยืนยัน" /> : <><span>◉</span><strong>ถ่ายรูปยืนยัน</strong><small>กรุณาถ่ายภาพเครื่องก่อนบันทึก</small></>}<input type="file" accept="image/*" capture="environment" onChange={attachPhoto} /></div>{message && <p className="form-message">{message}</p>}<button className="primary-action" disabled={isSubmitting || (mode === 'return' && !returnQrVerified)} aria-busy={isSubmitting} onClick={submitFlow}>{isSubmitting && <span className="submit-spinner" aria-hidden="true" />}{isSubmitting ? 'กำลังบันทึก…' : mode === 'checkout' ? 'ยืนยันการเบิก' : 'ยืนยันการคืน'} {!isSubmitting && <span>→</span>}</button></section></div>}
+    {isScanning && <div className="scanner-overlay"><div className="scanner"><button className="close" onClick={stopScanner}>×</button><p className="eyebrow">QR SCANNER</p><h2>เล็งกล้องไปที่ QR ของเครื่อง</h2><div className="video-wrap"><video ref={videoRef} muted playsInline /><span className="scan-frame" /></div><p>รองรับรหัส เช่น PDA-01</p></div></div>}
+    {activeDevice && <div className="modal-overlay"><section className="flow-modal"><button className="close" onClick={closeFlow}>×</button><p className="eyebrow">{mode === 'checkout' ? 'CHECK OUT DEVICE' : 'RETURN DEVICE'}</p><h2>{mode === 'checkout' ? 'ยืนยันการเบิกเครื่อง' : 'ยืนยันการคืนเครื่อง'}</h2><div className="selected-device"><span>▣</span><div><strong>{activeDevice.name}</strong><small>{activeDevice.id} · {activeDevice.serial}</small></div></div>{mode === 'checkout' ? <p className="signed-user">ผู้ใช้งานที่ล็อกอิน: <b>{signedInUser}</b></p> : <p className="returning">ผู้เบิก: <b>{activeDevice.holder}</b></p>}<label>พื้นที่/หมายเหตุ <input value={note} placeholder="เช่น Line A, Packing" onChange={(event) => setNote(event.target.value)} /></label><div className={`photo-box ${photo ? 'has-photo' : ''}`}>{photo ? <img src={photo} alt="ภาพยืนยัน" /> : <><span>◉</span><strong>ถ่ายรูปยืนยัน</strong><small>กรุณาถ่ายภาพเครื่องก่อนบันทึก</small></>}<input type="file" accept="image/*" capture="environment" onChange={attachPhoto} /></div>{message && <p className="form-message">{message}</p>}<button className="primary-action" disabled={isSubmitting} aria-busy={isSubmitting} onClick={submitFlow}>{isSubmitting && <span className="submit-spinner" aria-hidden="true" />}{isSubmitting ? 'กำลังบันทึก…' : mode === 'checkout' ? 'ยืนยันการเบิก' : 'ยืนยันการคืน'} {!isSubmitting && <span>→</span>}</button></section></div>}
   </main>;
 }
 
