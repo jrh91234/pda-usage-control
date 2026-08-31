@@ -21,7 +21,9 @@ function initialize() {
 }
 
 function doPost(e) {
-  const payload = JSON.parse(e.postData.contents); const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let payload;
+  try { payload = JSON.parse(e.postData.contents); } catch (error) { return jsonResponse_({ ok: false, message: 'รูปแบบข้อมูลไม่ถูกต้อง' }); }
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   if (payload.action === 'registerUser') return registerUser_(ss, payload.user);
   if (payload.action === 'updateUser') return updateUser_(ss, payload.originalUsername, payload.user);
   if (payload.action === 'deleteUser') return deleteUser_(ss, payload.username);
@@ -30,15 +32,33 @@ function doPost(e) {
   if (payload.action === 'deleteDevice') return deleteDevice_(ss, payload.deviceId);
   if (payload.action === 'login') return loginUser_(ss, payload.username, payload.password);
   const event = payload.event;
-  const photoUrl = savePhoto_(event.photo, `${event.deviceId}_${event.type}_${event.at}`);
-  ss.getSheetByName('Transactions').appendRow([event.id, new Date(event.at), event.type, event.deviceId, event.user, event.note || '', photoUrl]);
-  const devices = ss.getSheetByName('Devices'); const rows = devices.getDataRange().getValues(); const row = rows.findIndex((item, index) => index > 0 && item[0] === event.deviceId) + 1;
-  if (row > 1) devices.getRange(row, 4, 1, 3).setValues([[payload.device.status, payload.device.holder || '', new Date()]]);
-  return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
+  if (!event || !payload.device || !event.deviceId) return jsonResponse_({ ok: false, message: 'ข้อมูลรายการไม่ครบถ้วน' });
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    const devices = ss.getSheetByName('Devices'); const rows = devices.getDataRange().getValues(); const row = rows.findIndex((item, index) => index > 0 && String(item[0]).toUpperCase() === String(event.deviceId).toUpperCase()) + 1;
+    if (row <= 1) return jsonResponse_({ ok: false, message: `ไม่พบอุปกรณ์ ${event.deviceId}` });
+    const currentStatus = String(rows[row - 1][3]).toLowerCase();
+    const expectedStatus = event.type === 'checkout' ? 'in-use' : event.type === 'return' ? 'available' : '';
+    if (!expectedStatus || String(payload.device.status).toLowerCase() !== expectedStatus) return jsonResponse_({ ok: false, message: 'สถานะรายการไม่ถูกต้อง' });
+    if (event.type === 'checkout' && currentStatus !== 'available') return jsonResponse_({ ok: false, message: 'เครื่องนี้ถูกเบิกไปแล้ว กรุณาโหลดข้อมูลล่าสุด' });
+    if (event.type === 'return' && currentStatus !== 'in-use') return jsonResponse_({ ok: false, message: 'เครื่องนี้ไม่ได้อยู่ในสถานะกำลังใช้งาน' });
+    let photoUrl = '';
+    try { photoUrl = savePhoto_(event.photo, `${event.deviceId}_${event.type}_${event.at}`); } catch (photoError) { console.log(`บันทึกรูปไม่สำเร็จ: ${photoError}`); }
+    ss.getSheetByName('Transactions').appendRow([event.id, new Date(event.at), event.type, event.deviceId, event.user, event.note || '', photoUrl]);
+    devices.getRange(row, 4, 1, 3).setValues([[payload.device.status, payload.device.holder || '', new Date()]]);
+    const savedEvent = { id: event.id, deviceId: event.deviceId, type: event.type, user: event.user, at: new Date(event.at).toISOString(), photo: photoUrl || undefined, note: event.note || '' };
+    const savedDevice = { id: rows[row - 1][0], name: rows[row - 1][1], serial: rows[row - 1][2], status: payload.device.status, holder: payload.device.holder || undefined, since: payload.device.status === 'in-use' ? Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HH:mm') : undefined };
+    return jsonResponse_({ ok: true, device: savedDevice, event: savedEvent });
+  } catch (error) {
+    return jsonResponse_({ ok: false, message: 'บันทึกข้อมูลไม่สำเร็จ' });
+  } finally {
+    try { lock.releaseLock(); } catch (error) { /* no-op */ }
+  }
 }
 function doGet() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const devices = ss.getSheetByName('Devices').getDataRange().getValues().slice(1).map(row => ({ id: row[0], name: row[1], serial: row[2], status: row[3], holder: row[4] || undefined, since: row[5] ? Utilities.formatDate(new Date(row[5]), Session.getScriptTimeZone(), 'HH:mm') : undefined }));
+  const devices = ss.getSheetByName('Devices').getDataRange().getValues().slice(1).map(row => ({ id: row[0], name: row[1], serial: row[2], status: row[3], holder: row[4] || undefined, since: row[3] === 'in-use' && row[5] ? Utilities.formatDate(new Date(row[5]), Session.getScriptTimeZone(), 'HH:mm') : undefined }));
   const events = ss.getSheetByName('Transactions').getDataRange().getValues().slice(1).map(row => ({ id: row[0], at: new Date(row[1]).toISOString(), type: row[2], deviceId: row[3], user: row[4], note: row[5], photo: row[6] || undefined }));
   const users = ss.getSheetByName('Users').getDataRange().getValues().slice(1).filter(row => row[0]).map(row => ({ username: row[0], fullName: row[1], role: row[2] || 'operator', status: row[3] || 'active' }));
   return ContentService.createTextOutput(JSON.stringify({ ok: true, devices, events, users })).setMimeType(ContentService.MimeType.JSON);

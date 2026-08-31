@@ -8,6 +8,7 @@ type Device = { id: string; name: string; serial: string; status: DeviceStatus; 
 type UsageEvent = { id: string; deviceId: string; type: 'checkout' | 'return'; user: string; at: string; photo?: string; note?: string };
 type RegisteredUser = { username: string; fullName: string; role: 'admin' | 'operator'; status: 'active' | 'inactive'; password?: string };
 type Notification = { tone: 'success' | 'error'; text: string };
+type ScannerPurpose = 'select-device' | 'confirm-return';
 
 const initialDevices: Device[] = Array.from({ length: 11 }, (_, index) => {
   const number = String(index + 1).padStart(2, '0');
@@ -22,8 +23,7 @@ const initialEvents: UsageEvent[] = [
 ];
 const users = ['somchai.p', 'nicha.k', 'ananda.s', 'pimchanok.r', 'thanawat.m'];
 const initialUsers: RegisteredUser[] = users.map((username, index) => ({ username, fullName: username.split('.')[0], role: index === 0 ? 'admin' : 'operator', status: 'active' }));
-const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwGAfrkDX5mfwiFpp-j_vngJLeKRf2YCHSN3R07qu2tRju4Q5-0K2drZdWGhY9IV2x-/exec';
-const appScriptUrl = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || DEFAULT_APPS_SCRIPT_URL;
+const dataApiUrl = '/api/device-events';
 function formatTime(value: string) { return new Intl.DateTimeFormat('th-TH', { hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
 function formatDate(value: string) { return new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)); }
 
@@ -40,6 +40,9 @@ export default function Home() {
   const [note, setNote] = useState('');
   const [photo, setPhoto] = useState<string | undefined>();
   const [isScanning, setIsScanning] = useState(false);
+  const [scannerPurpose, setScannerPurpose] = useState<ScannerPurpose>('select-device');
+  const [returnQrVerified, setReturnQrVerified] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [notification, setNotification] = useState<Notification | null>(null);
   const [signedInUser, setSignedInUser] = useState('กำลังตรวจสอบบัญชี…');
@@ -60,8 +63,10 @@ export default function Home() {
     }).catch(() => setAuthStatus('signed-out'));
   }, []);
   useEffect(() => {
-    if (!appScriptUrl) return;
-    fetch(appScriptUrl).then((response) => response.json()).then((data) => {
+    fetch(dataApiUrl, { cache: 'no-store' }).then(async (response) => {
+      if (!response.ok) throw new Error('load-failed');
+      return response.json();
+    }).then((data) => {
       if (Array.isArray(data.devices)) setDevices(data.devices);
       if (Array.isArray(data.events)) setEvents(data.events);
       if (Array.isArray(data.users) && data.users.length) setRegisteredUsers(data.users);
@@ -69,12 +74,16 @@ export default function Home() {
   }, []);
   const summary = useMemo(() => ({ available: devices.filter((item) => item.status === 'available').length, inUse: devices.filter((item) => item.status === 'in-use').length }), [devices]);
   const sortedEvents = useMemo(() => [...events].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()), [events]);
-  function openFlow(device: Device, requestedMode?: 'checkout' | 'return') { setActiveDevice(device); setMode(requestedMode ?? (device.status === 'available' ? 'checkout' : 'return')); setPhoto(undefined); setNote(''); setMessage(''); }
-  function closeFlow() { stopScanner(); setActiveDevice(null); }
+  function openFlow(device: Device, requestedMode?: 'checkout' | 'return') {
+    const nextMode = requestedMode ?? (device.status === 'available' ? 'checkout' : 'return');
+    setActiveDevice(device); setMode(nextMode); setReturnQrVerified(nextMode !== 'return'); setPhoto(undefined); setNote(''); setMessage('');
+  }
+  function closeFlow() { stopScanner(); setActiveDevice(null); setReturnQrVerified(false); setIsSubmitting(false); }
   function attachPhoto(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => setPhoto(String(reader.result)); reader.readAsDataURL(file); }
-  async function startScanner() {
+  async function startScanner(purpose: ScannerPurpose = 'select-device') {
     setMessage('');
     if (!navigator.mediaDevices?.getUserMedia) { setMessage('เบราว์เซอร์นี้ไม่รองรับกล้อง — กรุณาเลือกเบิก/คืนจากรายการอุปกรณ์ด้านล่าง'); return; }
+    setScannerPurpose(purpose);
     setIsScanning(true);
     try {
       const { BrowserQRCodeReader } = await import('@zxing/browser');
@@ -86,6 +95,16 @@ export default function Home() {
         const scannedId = result.getText().trim().toUpperCase();
         const matched = devices.find((device) => device.id.toUpperCase() === scannedId);
         if (!matched) { setMessage(`ไม่พบอุปกรณ์รหัส ${scannedId} — ตรวจสอบ QR หรือเลือกจากรายการ`); return; }
+        if (purpose === 'confirm-return') {
+          if (!activeDevice || matched.id.toUpperCase() !== activeDevice.id.toUpperCase()) {
+            setMessage(`QR ไม่ตรงกับ ${activeDevice?.id || 'เครื่องที่กำลังคืน'} — กรุณาสแกน QR ของเครื่องเดิม`);
+            return;
+          }
+          stopScanner();
+          setReturnQrVerified(true);
+          setMessage('ตรวจสอบ QR เครื่องเดิมแล้ว สามารถยืนยันการคืนได้');
+          return;
+        }
         stopScanner();
         openFlow(matched);
       });
@@ -97,15 +116,40 @@ export default function Home() {
   function stopScanner() { scannerControls.current?.stop(); scannerControls.current = undefined; if (scanTimer.current) clearInterval(scanTimer.current); const stream = videoRef.current?.srcObject as MediaStream | null; stream?.getTracks().forEach((track) => track.stop()); if (videoRef.current) videoRef.current.srcObject = null; setIsScanning(false); }
   async function submitFlow() {
     if (!activeDevice || !photo) { setMessage('กรุณาถ่ายหรือแนบรูปยืนยันก่อนบันทึก'); return; }
+    if (mode === 'return' && !returnQrVerified) { setMessage('กรุณาสแกน QR ของเครื่องเดิมอีกครั้งเพื่อยืนยันการคืน'); return; }
     const now = new Date().toISOString(); const event: UsageEvent = { id: crypto.randomUUID(), deviceId: activeDevice.id, type: mode, user: mode === 'return' ? activeDevice.holder || username : username, at: now, photo, note };
     const nextDevice: Device = mode === 'checkout' ? { ...activeDevice, status: 'in-use', holder: username, since: formatTime(now) } : { ...activeDevice, status: 'available', holder: undefined, since: undefined };
-    setDevices((items) => items.map((item) => item.id === nextDevice.id ? nextDevice : item)); setEvents((items) => [event, ...items]);
-    if (appScriptUrl) { try { await fetch(appScriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: mode, device: nextDevice, event }) }); showNotification(mode === 'checkout' ? 'บันทึกการเบิกสำเร็จแล้ว' : 'บันทึกการคืนสำเร็จแล้ว'); } catch { const failureMessage = 'บันทึกในหน้านี้แล้ว แต่ส่งข้อมูลไป Google ไม่สำเร็จ'; setMessage(failureMessage); showNotification(failureMessage, 'error'); } } else { showNotification('บันทึกในหน้านี้แล้ว แต่ยังไม่ได้เชื่อม Google', 'error'); }
-    window.setTimeout(closeFlow, 700);
+    setIsSubmitting(true); setMessage('กำลังบันทึกข้อมูล…');
+    try {
+      const response = await fetch(dataApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: mode, device: nextDevice, event }) });
+      const data = await response.json().catch(() => ({})) as { ok?: boolean; message?: string; device?: Device; event?: UsageEvent };
+      if (!response.ok || !data.ok) throw new Error(data.message || 'save-failed');
+      let savedDevice = data.device;
+      let savedEvent = data.event;
+      if (!savedDevice || !savedEvent) {
+        const verifyResponse = await fetch(dataApiUrl, { cache: 'no-store' });
+        if (!verifyResponse.ok) throw new Error('verify-failed');
+        const verifyData = await verifyResponse.json() as { devices?: Device[]; events?: UsageEvent[] };
+        savedDevice = verifyData.devices?.find((item) => item.id.toUpperCase() === nextDevice.id.toUpperCase() && item.status === nextDevice.status && (mode !== 'checkout' || item.holder === username));
+        savedEvent = verifyData.events?.find((item) => item.id === event.id);
+        if (!savedDevice || !savedEvent) throw new Error('verify-failed');
+      }
+      setDevices((items) => items.map((item) => item.id === nextDevice.id ? savedDevice as Device : item));
+      setEvents((items) => [savedEvent as UsageEvent, ...items]);
+      showNotification(mode === 'checkout' ? 'บันทึกการเบิกสำเร็จแล้ว' : 'บันทึกการคืนสำเร็จแล้ว');
+      window.setTimeout(closeFlow, 700);
+    } catch {
+      const failureMessage = 'บันทึกไม่สำเร็จ ข้อมูลยังไม่ถูกเปลี่ยน กรุณาลองใหม่อีกครั้ง';
+      setMessage(failureMessage); showNotification(failureMessage, 'error');
+    } finally { setIsSubmitting(false); }
   }
   async function sendAdminAction(payload: Record<string, unknown>, successMessage: string, failureMessage: string) {
-    if (!appScriptUrl) { showNotification('บันทึกในหน้านี้แล้ว แต่ยังไม่ได้เชื่อม Google', 'error'); return; }
-    try { await fetch(appScriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) }); showNotification(successMessage); } catch { setMessage(failureMessage); showNotification(failureMessage, 'error'); }
+    try {
+      const response = await fetch(dataApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const data = await response.json().catch(() => ({})) as { ok?: boolean; message?: string };
+      if (!response.ok || data.ok !== true) throw new Error(data.message || 'save-failed');
+      showNotification(successMessage);
+    } catch { setMessage(failureMessage); showNotification(failureMessage, 'error'); }
   }
   async function registerUser(user: RegisteredUser) {
     const savedUser = { ...user, password: undefined };
@@ -149,8 +193,8 @@ export default function Home() {
     {notification && <div className={`toast-notification ${notification.tone}`} role="status" aria-live="polite"><span>{notification.tone === 'success' ? '✓' : '!'}</span><p>{notification.text}</p><button type="button" aria-label="ปิดการแจ้งเตือน" onClick={() => setNotification(null)}>×</button></div>}
     {message && !activeDevice && !isScanning && <div className="global-message" role="status"><span>i</span><p>{message}</p></div>}
     {screen === 'devices' ? <><section className="stats"><article><span className="stat-icon green">✓</span><div><small>พร้อมใช้งาน</small><strong>{summary.available} <i>เครื่อง</i></strong></div></article><article><span className="stat-icon amber">↗</span><div><small>กำลังถูกใช้งาน</small><strong>{summary.inUse} <i>เครื่อง</i></strong></div></article><article><span className="stat-icon blue">◷</span><div><small>รายการวันนี้</small><strong>{events.length} <i>ครั้ง</i></strong></div></article></section><section className="content-head"><div><h2>รายการอุปกรณ์</h2><p>สแกน QR หรือกดปุ่มเบิก/คืนจากรายการด้านล่างได้ทันที</p></div><div className="legend"><span className="dot available" /> พร้อมใช้ <span className="dot used" /> กำลังใช้งาน</div></section><section className="device-table-wrap"><table className="device-table"><thead><tr><th>อุปกรณ์</th><th>หมายเลขเครื่อง</th><th>สถานะ</th><th>ผู้ใช้งานปัจจุบัน</th><th>เวลาเบิก</th><th>การทำงาน</th></tr></thead><tbody>{devices.map((device) => <tr key={device.id}><td><span className="table-device"><span className="device-icon">▣</span><span><strong>{device.name}</strong><small>{device.id}</small></span></span></td><td>{device.serial}</td><td><span className={`pill ${device.status}`}>{device.status === 'available' ? 'พร้อมใช้' : 'กำลังใช้'}</span></td><td>{device.holder || <span className="muted">—</span>}</td><td>{device.since ? `${device.since} น.` : <span className="muted">—</span>}</td><td><span className="table-action-group"><button className={`table-action ${device.status}`} type="button" onClick={() => openFlow(device)}>{device.status === 'available' ? 'เบิกเครื่อง' : 'คืนเครื่อง'} <span>→</span></button><small>หรือสแกน QR</small></span></td></tr>)}</tbody></table></section></> : screen === 'timeline' ? <Timeline events={sortedEvents} devices={devices} /> : authUser?.role === 'admin' ? <AdminPage users={registeredUsers} devices={devices} currentUsername={authUser.username} onRegister={registerUser} onUpdateUser={updateUser} onDeleteUser={deleteUser} onRegisterDevice={registerDevice} onUpdateDevice={updateDevice} onDeleteDevice={deleteDevice} /> : <AccessDenied />}
-    {isScanning && <div className="scanner-overlay"><div className="scanner"><button className="close" onClick={stopScanner}>×</button><p className="eyebrow">QR SCANNER</p><h2>เล็งกล้องไปที่ QR ของเครื่อง</h2><div className="video-wrap"><video ref={videoRef} muted playsInline /><span className="scan-frame" /></div><p>รองรับรหัส เช่น PDA-01</p></div></div>}
-    {activeDevice && <div className="modal-overlay"><section className="flow-modal"><button className="close" onClick={closeFlow}>×</button><p className="eyebrow">{mode === 'checkout' ? 'CHECK OUT DEVICE' : 'RETURN DEVICE'}</p><h2>{mode === 'checkout' ? 'ยืนยันการเบิกเครื่อง' : 'ยืนยันการคืนเครื่อง'}</h2><div className="selected-device"><span>▣</span><div><strong>{activeDevice.name}</strong><small>{activeDevice.id} · {activeDevice.serial}</small></div></div>{mode === 'checkout' ? <p className="signed-user">ผู้ใช้งานที่ล็อกอิน: <b>{signedInUser}</b></p> : <p className="returning">ผู้เบิก: <b>{activeDevice.holder}</b></p>}<label>พื้นที่/หมายเหตุ <input value={note} placeholder="เช่น Line A, Packing" onChange={(event) => setNote(event.target.value)} /></label><div className={`photo-box ${photo ? 'has-photo' : ''}`}>{photo ? <img src={photo} alt="ภาพยืนยัน" /> : <><span>◉</span><strong>ถ่ายรูปยืนยัน</strong><small>กรุณาถ่ายภาพเครื่องก่อนบันทึก</small></>}<input type="file" accept="image/*" capture="environment" onChange={attachPhoto} /></div>{message && <p className="form-message">{message}</p>}<button className="primary-action" onClick={submitFlow}>{mode === 'checkout' ? 'ยืนยันการเบิก' : 'ยืนยันการคืน'} <span>→</span></button></section></div>}
+    {isScanning && <div className="scanner-overlay"><div className="scanner"><button className="close" onClick={stopScanner}>×</button><p className="eyebrow">QR SCANNER</p><h2>{scannerPurpose === 'confirm-return' ? 'สแกน QR เครื่องเดิมเพื่อยืนยันการคืน' : 'เล็งกล้องไปที่ QR ของเครื่อง'}</h2><div className="video-wrap"><video ref={videoRef} muted playsInline /><span className="scan-frame" /></div><p>{scannerPurpose === 'confirm-return' ? `ต้องตรงกับ ${activeDevice?.id || 'เครื่องที่เลือก'}` : 'รองรับรหัส เช่น PDA-01'}</p></div></div>}
+    {activeDevice && <div className="modal-overlay"><section className="flow-modal"><button className="close" onClick={closeFlow}>×</button><p className="eyebrow">{mode === 'checkout' ? 'CHECK OUT DEVICE' : 'RETURN DEVICE'}</p><h2>{mode === 'checkout' ? 'ยืนยันการเบิกเครื่อง' : 'ยืนยันการคืนเครื่อง'}</h2><div className="selected-device"><span>▣</span><div><strong>{activeDevice.name}</strong><small>{activeDevice.id} · {activeDevice.serial}</small></div></div>{mode === 'checkout' ? <p className="signed-user">ผู้ใช้งานที่ล็อกอิน: <b>{signedInUser}</b></p> : <><p className="returning">ผู้เบิก: <b>{activeDevice.holder}</b></p><div className={`return-qr-check ${returnQrVerified ? 'verified' : ''}`}><div><strong>{returnQrVerified ? '✓ QR ตรงกับเครื่องที่จะคืน' : 'ต้องยืนยัน QR ก่อนคืนเครื่อง'}</strong><small>{returnQrVerified ? `ยืนยันแล้วว่าเป็น ${activeDevice.id}` : 'สแกน QR บนเครื่องนี้ซ้ำอีกครั้ง เพื่อป้องกันคืนผิดเครื่อง'}</small></div>{!returnQrVerified && <button className="secondary-action" type="button" onClick={() => startScanner('confirm-return')}>สแกน QR ยืนยัน</button>}</div></>}{mode === 'return' && returnQrVerified && <p className="verification-note">ระบบตรวจสอบ QR เครื่องเดิมเรียบร้อยแล้ว</p>}<label>พื้นที่/หมายเหตุ <input value={note} placeholder="เช่น Line A, Packing" onChange={(event) => setNote(event.target.value)} /></label><div className={`photo-box ${photo ? 'has-photo' : ''}`}>{photo ? <img src={photo} alt="ภาพยืนยัน" /> : <><span>◉</span><strong>ถ่ายรูปยืนยัน</strong><small>กรุณาถ่ายภาพเครื่องก่อนบันทึก</small></>}<input type="file" accept="image/*" capture="environment" onChange={attachPhoto} /></div>{message && <p className="form-message">{message}</p>}<button className="primary-action" disabled={isSubmitting || (mode === 'return' && !returnQrVerified)} aria-busy={isSubmitting} onClick={submitFlow}>{isSubmitting ? 'กำลังบันทึก…' : mode === 'checkout' ? 'ยืนยันการเบิก' : 'ยืนยันการคืน'} <span>→</span></button></section></div>}
   </main>;
 }
 
