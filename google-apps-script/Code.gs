@@ -15,8 +15,6 @@ function initialize() {
   }
   const users = ss.getSheetByName('Users');
   if (users.getLastColumn() === 5) { users.insertColumnBefore(5); users.getRange(1, 5).setValue('Password hash'); }
-  if (users.getLastRow() === 1) users.appendRow(['admin', 'System Administrator', 'admin', 'active', hashPassword_('PDAadmin2026!'), new Date()]);
-  else if (users.getRange(2, 1).getValue() === 'admin' && !users.getRange(2, 5).getValue()) users.getRange(2, 5).setValue(hashPassword_('PDAadmin2026!'));
   getPhotoFolder_();
 }
 
