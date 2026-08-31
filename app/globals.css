@@ -409,7 +409,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .role-pill.admin { color: #9757a2; background: #f3e8f5; }
 .role-pill.operator { color: #2d67dc; background: var(--blue-soft); }
 .admin-row-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-.row-action { padding: 6px 8px; border: 1px solid #d9e2f7; border-radius: 7px; background: #f7f9ff; color: var(--primary); font-size: 10px; font-weight: 800; white-space: nowrap; }
+.row-action { min-width: 54px; min-height: 36px; padding: 8px 10px; border: 1px solid #d9e2f7; border-radius: 7px; background: #f7f9ff; color: var(--primary); font-size: 10px; font-weight: 800; white-space: nowrap; touch-action: manipulation; }
 .row-action:hover { background: #eaf1ff; }
 .row-action.danger { border-color: #f0d5d9; background: #fff7f8; color: #bd5664; }
 .row-action.danger:hover { background: var(--danger-soft); }
@@ -417,7 +417,8 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .admin-note { display: flex; gap: 9px; align-items: start; margin-top: 16px; padding: 14px; border-radius: 10px; background: #edf3ff; color: #637492; }
 .admin-note > span { display: grid; place-items: center; flex: none; width: 18px; height: 18px; border: 1px solid #9eb7ee; border-radius: 50%; font-size: 11px; }
 .admin-note p { margin: 1px 0 0; font-size: 10px; line-height: 1.6; }
-.device-admin { margin-top: 24px; }
+.device-admin { margin-top: 24px; scroll-margin-top: 18px; }
+.admin-form { scroll-margin-top: 18px; }
 .device-form { display: grid; grid-template-columns: 1.05fr 1.3fr 1.05fr auto; gap: 12px; align-items: end; margin-top: 18px; }
 .device-form label { display: block; color: #53657e; font-size: 11px; font-weight: 800; }
 .device-form .primary-action { width: auto; min-width: 145px; }
