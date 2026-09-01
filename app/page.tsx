@@ -10,19 +10,7 @@ type UsageEvent = { id: string; deviceId: string; type: 'checkout' | 'return'; u
 type RegisteredUser = { username: string; fullName: string; role: 'admin' | 'operator'; status: 'active' | 'inactive'; password?: string };
 type Notification = { tone: 'success' | 'error'; text: string };
 
-const initialDevices: Device[] = Array.from({ length: 11 }, (_, index) => {
-  const number = String(index + 1).padStart(2, '0');
-  return { id: `PDA-${number}`, name: `PDA Scanner ${number}`, serial: `ZB-${202600 + index + 1}`, status: index === 1 || index === 4 || index === 7 ? 'in-use' : 'available', holder: index === 1 ? 'somchai.p' : index === 4 ? 'nicha.k' : index === 7 ? 'ananda.s' : undefined, since: index === 1 ? '08:14' : index === 4 ? '09:02' : index === 7 ? '10:36' : undefined };
-});
-
-const initialEvents: UsageEvent[] = [
-  { id: 'e1', deviceId: 'PDA-02', type: 'checkout', user: 'somchai.p', at: '2026-08-27T08:14:00+07:00', note: 'Line A' },
-  { id: 'e2', deviceId: 'PDA-05', type: 'checkout', user: 'nicha.k', at: '2026-08-27T09:02:00+07:00', note: 'Packing' },
-  { id: 'e3', deviceId: 'PDA-08', type: 'checkout', user: 'ananda.s', at: '2026-08-27T10:36:00+07:00', note: 'Warehouse' },
-  { id: 'e4', deviceId: 'PDA-01', type: 'return', user: 'pimchanok.r', at: '2026-08-27T11:20:00+07:00' },
-];
 const users = ['somchai.p', 'nicha.k', 'ananda.s', 'pimchanok.r', 'thanawat.m'];
-const initialUsers: RegisteredUser[] = users.map((username, index) => ({ username, fullName: username.split('.')[0], role: index === 0 ? 'admin' : 'operator', status: 'active' }));
 const dataApiUrl = '/api/device-events';
 const THAILAND_TIME_ZONE = 'Asia/Bangkok';
 const DATA_REQUEST_TIMEOUT_MS = 30000;
@@ -184,11 +172,13 @@ async function compressPhoto(file: File) {
 }
 
 export default function Home() {
-  const [devices, setDevices] = useState(initialDevices);
-  const [events, setEvents] = useState(initialEvents);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [events, setEvents] = useState<UsageEvent[]>([]);
   const [screen, setScreen] = useState<'devices' | 'timeline' | 'admin'>('devices');
-  const [registeredUsers, setRegisteredUsers] = useState<RegisteredUser[]>(initialUsers);
+  const [registeredUsers, setRegisteredUsers] = useState<RegisteredUser[]>([]);
   const [authStatus, setAuthStatus] = useState<'loading' | 'signed-out' | 'signed-in'>('loading');
+  const [dataStatus, setDataStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [dataError, setDataError] = useState('');
   const [authUser, setAuthUser] = useState<RegisteredUser | null>(null);
   const [activeDevice, setActiveDevice] = useState<Device | null>(null);
   const [mode, setMode] = useState<'checkout' | 'return'>('checkout');
@@ -223,10 +213,15 @@ export default function Home() {
       if (!response.ok) throw new Error('load-failed');
       return response.json();
     }).then((data) => {
-      if (Array.isArray(data.devices)) setDevices(data.devices);
+      if (!Array.isArray(data.devices)) throw new Error('invalid-device-data');
+      setDevices(data.devices);
       if (Array.isArray(data.events)) setEvents(data.events);
       if (Array.isArray(data.users) && data.users.length) setRegisteredUsers(data.users);
-    }).catch(() => setMessage('ยังโหลดข้อมูล Google ไม่ได้ — กำลังแสดงข้อมูลตัวอย่าง'));
+      setDataStatus('ready');
+    }).catch(() => {
+      setDataError('ยังโหลดข้อมูลอุปกรณ์ล่าสุดไม่ได้ กรุณาลองโหลดหน้าเว็บใหม่อีกครั้ง');
+      setDataStatus('error');
+    });
   }, []);
   const summary = useMemo(() => ({ available: devices.filter((item) => item.status === 'available').length, inUse: devices.filter((item) => item.status === 'in-use').length }), [devices]);
   const sortedEvents = useMemo(() => [...events].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()), [events]);
@@ -403,6 +398,8 @@ export default function Home() {
   async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); setAuthUser(null); setAuthStatus('signed-out'); }
   if (authStatus === 'loading') return <LoadingScreen />;
   if (authStatus === 'signed-out') return <LoginPage onLogin={login} />;
+  if (dataStatus === 'loading') return <LoadingScreen title="กำลังโหลดข้อมูลอุปกรณ์" message="กำลังดึงข้อมูลล่าสุด กรุณารอสักครู่…" />;
+  if (dataStatus === 'error') return <DataErrorScreen message={dataError} />;
   return <main>
     <section className="topbar"><div className="brand"><span className="brand-mark">P</span><span><strong>PDA CONTROL</strong><small>Factory device custody</small></span></div><div className="today">{formatDate(new Date().toISOString())}</div><div className="profile"><span className="avatar">{signedInUser.slice(0, 2).toUpperCase()}</span><span>{signedInUser}</span><button onClick={logout} title="ออกจากระบบ">ออกจากระบบ</button></div></section>
     <section className="hero"><div><p className="eyebrow">DEVICE OPERATIONS</p><h1>ควบคุมการใช้งาน PDA<br /><em>ให้ตรวจสอบได้ทุกครั้ง</em></h1><p className="hero-copy">ต้องสแกน QR ก่อนเริ่มเบิกหรือคืนเครื่อง พร้อมภาพยืนยันและประวัติที่ค้นหาได้</p></div><button className="scan-button" onClick={() => startScanner()}><span>⌁</span> สแกน QR เครื่อง</button></section>
@@ -527,7 +524,8 @@ function AdminPage({ users, devices, currentUsername, onRegister, onUpdateUser, 
   return <section className="admin-page"><div className="admin-heading"><div><p className="eyebrow">ADMINISTRATION</p><h2>ตั้งค่าระบบ</h2><p>จัดการผู้ใช้งานและอุปกรณ์ที่อยู่ในระบบ</p></div><span className="admin-lock">▣ เฉพาะผู้ดูแลระบบ</span></div><div className="admin-switch" role="tablist" aria-label="เมนูตั้งค่าระบบ"><button className={adminView === 'users' ? 'active' : ''} onClick={() => setAdminView('users')} role="tab" aria-selected={adminView === 'users'}><span>♙</span> ผู้ใช้งาน</button><button className={adminView === 'devices' ? 'active' : ''} onClick={() => setAdminView('devices')} role="tab" aria-selected={adminView === 'devices'}><span>▣</span> อุปกรณ์</button></div>{adminView === 'users' ? <><div className="admin-layout"><form ref={userFormRef} className="admin-form" onSubmit={submit}><div className="form-title"><span className="stat-icon blue">+</span><div><h3>{editingUsername ? 'แก้ไขผู้ใช้งาน' : 'ลงทะเบียนผู้ใช้งาน'}</h3><p>{editingUsername ? 'แก้ไขข้อมูลบัญชีและสิทธิ์การใช้งาน' : 'เพิ่มบัญชี พร้อมกำหนดรหัสผ่านสำหรับเข้าใช้งาน'}</p></div></div><label>Username<input required value={username} onChange={(event) => setUsername(event.target.value)} placeholder="เช่น somchai.p" /></label><label>ชื่อ–นามสกุล<input required value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="เช่น สมชาย ใจดี" /></label><label>รหัสผ่าน<input required={!editingUsername} type="password" minLength={editingUsername && !password ? undefined : 8} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={editingUsername ? 'เว้นว่างเพื่อใช้รหัสผ่านเดิม' : 'อย่างน้อย 8 ตัวอักษร'} /></label><label>ยืนยันรหัสผ่าน<input required={!editingUsername} type="password" minLength={editingUsername && !confirmPassword ? undefined : 8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder={editingUsername ? 'กรอกรหัสผ่านใหม่อีกครั้ง' : 'กรอกรหัสผ่านอีกครั้ง'} /></label><label>สิทธิ์การใช้งาน<select value={role} onChange={(event) => setRole(event.target.value as RegisteredUser['role'])}><option value="operator">ผู้ใช้งาน — เบิก/คืนเครื่อง</option><option value="admin">ผู้ดูแลระบบ — ตั้งค่าและลงทะเบียน</option></select></label><div className="form-actions"><button className="primary-action" type="submit">{editingUsername ? 'บันทึกการแก้ไข' : 'บันทึกผู้ใช้งาน'} <span>→</span></button>{editingUsername && <button className="secondary-action" type="button" onClick={cancelEditUser}>ยกเลิก</button>}</div>{error && <p className="form-message">{error}</p>}{saved && <p className="saved-message">✓ {editingUsername ? 'บันทึกการแก้ไขแล้ว' : 'ดำเนินการผู้ใช้งานแล้ว'}</p>}</form><section className="user-list"><div className="list-title"><div><h3>ผู้ใช้งานในระบบ</h3><p>{users.filter((user) => user.status === 'active').length} บัญชีที่ใช้งานอยู่</p></div><span className="user-count">{users.length}</span></div><div className="user-rows">{users.map((user) => <div className="user-row" key={user.username}><span className="user-avatar">{user.fullName.slice(0, 2)}</span><div><strong>{user.fullName}</strong><small>{user.username}</small></div><span className={`role-pill ${user.role}`}>{user.role === 'admin' ? 'ADMIN' : 'OPERATOR'}</span><span className="admin-row-actions"><button className="row-action" type="button" onClick={() => beginEditUser(user)}>แก้ไข</button><button className="row-action danger" type="button" onClick={() => removeUser(user)} disabled={user.username.toLowerCase() === currentUsername.toLowerCase()} title={user.username.toLowerCase() === currentUsername.toLowerCase() ? 'ไม่สามารถลบบัญชีที่กำลังใช้งานอยู่' : 'ลบผู้ใช้งาน'}>ลบ</button></span></div>)}</div></section></div><div className="admin-note"><span>i</span><p>รหัสผ่านจะถูกแฮชก่อนจัดเก็บ ไม่เก็บเป็นข้อความปกติ และผู้ใช้จะถูกระบุชื่ออัตโนมัติในรายการเบิก–คืน</p></div></> : <section ref={deviceAdminRef} className="device-admin"><div className="form-title"><span className="stat-icon green">▣</span><div><h3>{editingDeviceId ? 'แก้ไขอุปกรณ์' : 'ลงทะเบียนอุปกรณ์'}</h3><p>{editingDeviceId ? 'แก้ไขชื่อ รหัส หรือ Serial Number ของอุปกรณ์' : 'กำหนดรหัสที่ต้องนำไปสร้างเป็น QR และติดที่ตัวเครื่อง'}</p></div></div><form className="device-form" onSubmit={submitDevice}><label>Device ID / QR ID<input required value={deviceId} onChange={(event) => setDeviceId(event.target.value)} placeholder="เช่น PDA-12" /></label><label>ชื่ออุปกรณ์<input required value={deviceName} onChange={(event) => setDeviceName(event.target.value)} placeholder="เช่น PDA Scanner 12" /></label><label>Serial Number<input required value={serial} onChange={(event) => setSerial(event.target.value)} placeholder="เช่น ZB-202612" /></label><div className="device-form-actions"><button className="primary-action" type="submit">{editingDeviceId ? 'บันทึกการแก้ไข' : 'บันทึกอุปกรณ์'} <span>→</span></button>{editingDeviceId && <button className="secondary-action" type="button" onClick={cancelEditDevice}>ยกเลิก</button>}</div></form>{deviceError && <p className="form-message">{deviceError}</p>}{deviceSaved && <p className="saved-message">✓ ดำเนินการอุปกรณ์แล้ว</p>}<QRCodeGenerator devices={devices} /><div className="device-registry"><div className="list-title"><div><h3>อุปกรณ์ในระบบ</h3><p>{devices.length} เครื่อง · ใช้ Device ID เป็นค่าที่บันทึกใน QR</p></div></div><div className="registry-table-wrap"><table className="device-table registry-table"><thead><tr><th>Device ID / QR ID</th><th>ชื่ออุปกรณ์</th><th>Serial Number</th><th>สถานะ</th><th>การจัดการ</th></tr></thead><tbody>{devices.map((device) => <tr key={device.id}><td><code>{device.id}</code></td><td>{device.name}</td><td>{device.serial}</td><td><span className={`pill ${device.status}`}>{device.status === 'available' ? 'พร้อมใช้' : 'กำลังใช้'}</span></td><td><span className="admin-row-actions"><button className="row-action" type="button" aria-label={'แก้ไข ' + device.id} title={'แก้ไขข้อมูล ' + device.id} onClick={() => beginEditDevice(device)}>แก้ไข</button><button className="row-action danger" type="button" onClick={() => removeDevice(device)} disabled={device.status === 'in-use'} title={device.status === 'in-use' ? 'ต้องคืนเครื่องก่อนลบ' : 'ลบอุปกรณ์'}>ลบ</button></span></td></tr>)}</tbody></table></div></div><div className="admin-note"><span>i</span><p>Device ID ที่ลงทะเบียนควรตรงกับข้อความใน QR ของเครื่อง เพื่อป้องกันการเลือกผิดเครื่อง</p></div></section>}</section>;
 }
 
-function LoadingScreen() { return <main className="auth-shell"><section className="auth-card loading-card"><span className="brand-mark">P</span><h1>กำลังตรวจสอบบัญชี</h1><p>โปรดรอสักครู่…</p></section></main>; }
+function LoadingScreen({ title = 'กำลังตรวจสอบบัญชี', message = 'โปรดรอสักครู่…' }: { title?: string; message?: string }) { return <main className="auth-shell"><section className="auth-card loading-card"><span className="brand-mark">P</span><h1>{title}</h1><p>{message}</p></section></main>; }
+function DataErrorScreen({ message }: { message: string }) { return <main className="auth-shell"><section className="auth-card loading-card"><span className="brand-mark">!</span><h1>โหลดข้อมูลไม่สำเร็จ</h1><p>{message}</p><button className="primary-action" type="button" onClick={() => window.location.reload()}>โหลดใหม่ <span>→</span></button></section></main>; }
 
 function LoginPage({ onLogin }: { onLogin: (username: string, password: string) => Promise<void> }) {
   const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
